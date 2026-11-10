@@ -17,3 +17,7 @@ log.txt
 
 .DS_Store
 Thumbs.db
+
+flowable-postgresql/
+flowable-postgres/
+Docker_Compose/
