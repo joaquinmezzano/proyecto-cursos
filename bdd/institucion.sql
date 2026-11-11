@@ -5,7 +5,10 @@ CREATE TABLE empresa (
     id_empresa SERIAL PRIMARY KEY,
     nombre_empresa VARCHAR(100) NOT NULL,
     persona_contacto VARCHAR(100),
-    usuario_flowable VARCHAR(50)
+    usuario_flowable VARCHAR(50),
+    fecha_posible_1 DATE,
+    fecha_posible_2 DATE,
+    otras_fechas TEXT
 );
 
 CREATE TABLE curso (
@@ -17,6 +20,9 @@ CREATE TABLE curso (
     programa TEXT,
     presupuesto NUMERIC(10, 2),
     fecha_inicio DATE,
+    fecha_posible_1 DATE,
+    fecha_posible_2 DATE,
+    otras_fechas TEXT,
     informe_resultados TEXT,
     estado VARCHAR(50) DEFAULT 'en_preparacion',
 
