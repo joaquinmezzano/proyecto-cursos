@@ -26,10 +26,6 @@ import java.util.Date;
 import aux.GeneradorPdf;
 
 public class RegistrarElaborarPropuesta implements TaskListener {
-
-    // Se usan las mismas credenciales que el contenedor de Flowable usa para su propia base
-    // (variables de entorno del docker-compose), así no hay contraseñas escritas en el código.
-    // Se pueden sobrescribir con INSTITUCION_DB_URL / INSTITUCION_DB_USER / INSTITUCION_DB_PASSWORD.
     private static final String DB_URL = env("INSTITUCION_DB_URL", "jdbc:postgresql://postgres:5432/institucion");
     private static final String DB_USER = env("INSTITUCION_DB_USER", env("SPRING_DATASOURCE_USERNAME", "flowable"));
     private static final String DB_PASSWORD = env("INSTITUCION_DB_PASSWORD", env("SPRING_DATASOURCE_PASSWORD", ""));
@@ -41,25 +37,28 @@ public class RegistrarElaborarPropuesta implements TaskListener {
 
     private static final DateTimeFormatter FORMATO_PDF = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final String SIN_OTRAS_FECHAS = "No se propusieron fechas nuevas";
+    private static final BigDecimal PRESUPUESTO_MAXIMO = new BigDecimal("99999999.99");
 
     @Override
     public void notify(DelegateTask task) {
-
-        // Variables que vienen del formulario, validadas y convertidas una sola vez.
-        // Los mismos valores se usan para la base de datos y para el PDF.
-        // En el formulario "elaborarPropuesta" el campo se llama "programa"
         String propuesta = textoOpcional(task.getVariable("programa"));
         BigDecimal presupuesto = parsearPresupuesto(task.getVariable("presupuesto"));
+
+        if (presupuesto.signum() < 0 || presupuesto.compareTo(PRESUPUESTO_MAXIMO) > 0) {
+            throw new FlowableException("Presupuesto fuera de rango: " + presupuesto.toPlainString()
+                    + " (debe estar entre 0 y " + PRESUPUESTO_MAXIMO.toPlainString() + ")");
+        }
+
         LocalDate fechaPosible1 = parsearFecha(task.getVariable("fechaposible1"), "fechaposible1");
         if (fechaPosible1 == null) {
             throw new FlowableException("La fecha posible 1 es obligatoria");
         }
+
         LocalDate fechaPosible2 = parsearFecha(task.getVariable("fechaposible2"), "fechaposible2");
         String otrasFechas = textoOpcional(task.getVariable("otrasfechasopcional"));
 
         String processInstanceId = task.getProcessInstanceId();
 
-        // Usuario de Flowable que inició el proceso (la empresa)
         ProcessEngineConfiguration config = CommandContextUtil.getProcessEngineConfiguration();
         ProcessInstance instancia = config.getRuntimeService()
                 .createProcessInstanceQuery()
@@ -75,16 +74,23 @@ public class RegistrarElaborarPropuesta implements TaskListener {
             nombreCurso = "Curso " + processInstanceId;
         }
 
+        byte[] pdfGenerado = GeneradorPdf.crearDocumento(
+                propuesta != null ? propuesta : "",
+                presupuesto.toPlainString(),
+                fechaPosible1.format(FORMATO_PDF),
+                fechaPosible2 != null ? fechaPosible2.format(FORMATO_PDF) : "",
+                otrasFechas != null ? otrasFechas : SIN_OTRAS_FECHAS);
+        if (pdfGenerado == null) {
+            throw new FlowableException("No se pudo generar el PDF de la propuesta (ver el log)");
+        }
+
         try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
             conn.setAutoCommit(false);
-
             int idEmpresa = obtenerOCrearEmpresa(conn, config, usuarioEmpresa);
-
-            // Si la propuesta ya se registró (p. ej. se volvió a esta tarea), se actualiza; si no, se inserta.
-            // fecha_inicio guarda la fecha posible 1 como referencia (luego se pisa cuando la empresa acepte).
             String update = "UPDATE curso SET programa = ?, presupuesto = ?, fecha_inicio = ?, "
                     + "fecha_posible_1 = ?, fecha_posible_2 = ?, otras_fechas = ? WHERE id_instancia = ?";
             int filas;
+
             try (PreparedStatement ps = conn.prepareStatement(update)) {
                 ps.setString(1, propuesta);
                 ps.setBigDecimal(2, presupuesto);
@@ -122,14 +128,6 @@ public class RegistrarElaborarPropuesta implements TaskListener {
             throw new FlowableException("Error al guardar el curso en la base de datos: " + e.getMessage(), e);
         }
 
-        System.out.println("Generando PDF...");
-        byte[] pdfGenerado = GeneradorPdf.crearDocumento(
-                propuesta != null ? propuesta : "",
-                presupuesto.toPlainString(),
-                fechaPosible1.format(FORMATO_PDF),
-                fechaPosible2 != null ? fechaPosible2.format(FORMATO_PDF) : "",
-                otrasFechas != null ? otrasFechas : SIN_OTRAS_FECHAS);
-
         task.setVariable("pdfPropuesta", pdfGenerado);
     }
 
@@ -147,17 +145,20 @@ public class RegistrarElaborarPropuesta implements TaskListener {
         if (valor == null) {
             return new BigDecimal("0.00");
         }
+
         if (valor instanceof Number) {
             return new BigDecimal(valor.toString()).setScale(2, java.math.RoundingMode.HALF_UP);
         }
+
         String texto = valor.toString().trim().replace("$", "").replace(" ", "");
         if (texto.isEmpty()) {
             return new BigDecimal("0.00");
         }
-        // Formato argentino "1.500,50": se quitan los puntos de miles y la coma pasa a ser decimal
+
         if (texto.contains(",")) {
             texto = texto.replace(".", "").replace(",", ".");
         }
+
         try {
             return new BigDecimal(texto).setScale(2, java.math.RoundingMode.HALF_UP);
         } catch (NumberFormatException e) {
@@ -167,22 +168,24 @@ public class RegistrarElaborarPropuesta implements TaskListener {
 
     /**
      * Convierte la variable de fecha del formulario a LocalDate.
-     * Acepta Date, LocalDate, LocalDateTime o texto (yyyy-MM-dd, dd/MM/yyyy o ISO con hora).
-     * Devuelve null si viene vacía; lanza error si no se puede interpretar.
      */
     private static LocalDate parsearFecha(Object valor, String nombreVariable) {
         if (valor == null) {
             return null;
         }
+
         if (valor instanceof Date) {
             return ((Date) valor).toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         }
+
         if (valor instanceof LocalDate) {
             return (LocalDate) valor;
         }
+
         if (valor instanceof LocalDateTime) {
             return ((LocalDateTime) valor).toLocalDate();
         }
+
         if (valor instanceof org.joda.time.LocalDate) {
             org.joda.time.LocalDate joda = (org.joda.time.LocalDate) valor;
             return LocalDate.of(joda.getYear(), joda.getMonthOfYear(), joda.getDayOfMonth());
@@ -192,6 +195,7 @@ public class RegistrarElaborarPropuesta implements TaskListener {
         if (texto.isEmpty()) {
             return null;
         }
+
         try {
             return LocalDate.parse(texto); // yyyy-MM-dd
         } catch (DateTimeParseException ignorada) { }
