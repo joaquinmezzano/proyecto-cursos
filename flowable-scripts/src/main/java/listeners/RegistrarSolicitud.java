@@ -29,11 +29,12 @@ public class RegistrarSolicitud implements ExecutionListener {
     public void notify(DelegateExecution execution) {
         String idInstancia = execution.getProcessInstanceId();
 
-        String empresaNombre = getVar(execution, "empresaNombre", null);
+        // aca empresaNombre y tematica tiene que tener valor si o si debido a que son not null en la db, sino no anda
+        String empresaNombre = getVar(execution, "empresaNombre", "Empresa sin nombre para probar");
         String empresaCuit = getVar(execution, "empresaCuit", null);
         String contactoNombre = getVar(execution, "contactoNombre", null);
         String contactoEmail = getVar(execution, "contactoEmail", null);
-        String tematica = getVar(execution, "tematica", null);
+        String tematica = getVar(execution, "tematica", "Solicitud sin tematica para probar");
         String descripcion = getVar(execution, "descripcion", null);
         Integer participantes = entero(execution, "cantidadParticipantes");
         String fechasPreferidas = getVar(execution, "fechasPreferidas", null);
