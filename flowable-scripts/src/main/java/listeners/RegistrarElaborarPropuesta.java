@@ -1,20 +1,13 @@
 package listeners;
 
 import org.flowable.common.engine.api.FlowableException;
-import org.flowable.engine.ProcessEngineConfiguration;
 import org.flowable.engine.delegate.TaskListener;
-import org.flowable.engine.impl.util.CommandContextUtil;
-import org.flowable.engine.runtime.ProcessInstance;
-import org.flowable.idm.api.User;
 import org.flowable.task.service.delegate.DelegateTask;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,16 +17,14 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Date;
 import aux.GeneradorPdf;
+import db.ConexionDB;
 
+/**
+ * el curso ya existe en la db desde el inicio de la instancia (lo crea
+ * RegistrarSolicitud con los datos del formulario de solicitud que todavia no tenemos). Aca solo se
+ * actualiza esa fila con los datos de la propuesta y se genera el PDF.
+ */
 public class RegistrarElaborarPropuesta implements TaskListener {
-    private static final String DB_URL = env("INSTITUCION_DB_URL", "jdbc:postgresql://postgres:5432/institucion");
-    private static final String DB_USER = env("INSTITUCION_DB_USER", env("SPRING_DATASOURCE_USERNAME", "flowable"));
-    private static final String DB_PASSWORD = env("INSTITUCION_DB_PASSWORD", env("SPRING_DATASOURCE_PASSWORD", ""));
-
-    private static String env(String nombre, String porDefecto) {
-        String valor = System.getenv(nombre);
-        return valor != null && !valor.isEmpty() ? valor : porDefecto;
-    }
 
     private static final DateTimeFormatter FORMATO_PDF = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final String SIN_OTRAS_FECHAS = "No se propusieron fechas nuevas";
@@ -56,23 +47,9 @@ public class RegistrarElaborarPropuesta implements TaskListener {
 
         LocalDate fechaPosible2 = parsearFecha(task.getVariable("fechaposible2"), "fechaposible2");
         String otrasFechas = textoOpcional(task.getVariable("otrasfechasopcional"));
+        String nombreCurso = textoOpcional(task.getVariable("nombreCurso"));
 
         String processInstanceId = task.getProcessInstanceId();
-
-        ProcessEngineConfiguration config = CommandContextUtil.getProcessEngineConfiguration();
-        ProcessInstance instancia = config.getRuntimeService()
-                .createProcessInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .singleResult();
-        String usuarioEmpresa = instancia != null ? instancia.getStartUserId() : null;
-        if (usuarioEmpresa == null) {
-            throw new FlowableException("No se pudo determinar el usuario que inició la instancia " + processInstanceId);
-        }
-
-        String nombreCurso = textoOpcional(task.getVariable("nombreCurso"));
-        if (nombreCurso == null) {
-            nombreCurso = "Curso " + processInstanceId;
-        }
 
         byte[] pdfGenerado = GeneradorPdf.crearDocumento(
                 propuesta != null ? propuesta : "",
@@ -84,54 +61,42 @@ public class RegistrarElaborarPropuesta implements TaskListener {
             throw new FlowableException("No se pudo generar el PDF de la propuesta (ver el log)");
         }
 
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
-            conn.setAutoCommit(false);
-            int idEmpresa = obtenerOCrearEmpresa(conn, config, usuarioEmpresa);
-            String update = "UPDATE curso SET programa = ?, presupuesto = ?, fecha_inicio = ?, "
-                    + "fecha_posible_1 = ?, fecha_posible_2 = ?, otras_fechas = ? WHERE id_instancia = ?";
-            int filas;
+        // COALESCE(?, nombre): si el formulario trae un nombre de curso, lo reemplaza;
+        // si viene vacio, conserva el que se guardo al inicio (la tematica de la solicitud).
+        String update = "UPDATE curso SET nombre = COALESCE(?, nombre), programa = ?, presupuesto = ?, "
+                + "fecha_inicio = ?, fecha_posible_1 = ?, fecha_posible_2 = ?, otras_fechas = ? "
+                + "WHERE id_instancia = ?";
 
-            try (PreparedStatement ps = conn.prepareStatement(update)) {
-                ps.setString(1, propuesta);
-                ps.setBigDecimal(2, presupuesto);
-                ps.setDate(3, java.sql.Date.valueOf(fechaPosible1));
-                ps.setDate(4, java.sql.Date.valueOf(fechaPosible1));
-                ps.setDate(5, aSqlDate(fechaPosible2));
-                ps.setString(6, otrasFechas);
-                ps.setString(7, processInstanceId);
-                filas = ps.executeUpdate();
-            }
+        try (Connection conn = ConexionDB.abrir();
+             PreparedStatement ps = conn.prepareStatement(update)) {
 
+            ps.setString(1, nombreCurso);
+            ps.setString(2, propuesta);
+            ps.setBigDecimal(3, presupuesto);
+            ps.setDate(4, java.sql.Date.valueOf(fechaPosible1));
+            ps.setDate(5, java.sql.Date.valueOf(fechaPosible1));
+            ps.setDate(6, aSqlDate(fechaPosible2));
+            ps.setString(7, otrasFechas);
+            ps.setString(8, processInstanceId);
+
+            int filas = ps.executeUpdate();
             if (filas == 0) {
-                String insert = "INSERT INTO curso (id_empresa, id_instancia, nombre, programa, presupuesto, "
-                        + "fecha_inicio, fecha_posible_1, fecha_posible_2, otras_fechas) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                try (PreparedStatement ps = conn.prepareStatement(insert)) {
-                    ps.setInt(1, idEmpresa);
-                    ps.setString(2, processInstanceId);
-                    ps.setString(3, nombreCurso);
-                    ps.setString(4, propuesta);
-                    ps.setBigDecimal(5, presupuesto);
-                    ps.setDate(6, java.sql.Date.valueOf(fechaPosible1));
-                    ps.setDate(7, java.sql.Date.valueOf(fechaPosible1));
-                    ps.setDate(8, aSqlDate(fechaPosible2));
-                    ps.setString(9, otrasFechas);
-                    ps.executeUpdate();
-                }
+                // El curso deberia existir desde el inicio (RegistrarSolicitud).
+                // Si no esta, algo fallo antes: mejor avisar que crear un curso incompleto.
+                throw new FlowableException("No existe un curso vinculado a la instancia " + processInstanceId);
             }
 
-            conn.commit();
-            System.out.println("Curso registrado para la instancia " + processInstanceId
-                    + " (empresa " + idEmpresa + ", usuario " + usuarioEmpresa + ")");
+            System.out.println("[RegistrarElaborarPropuesta] propuesta guardada para la instancia " + processInstanceId);
+
         } catch (SQLException e) {
             // Se relanza para que la tarea no se complete si no se pudo guardar en la base
-            throw new FlowableException("Error al guardar el curso en la base de datos: " + e.getMessage(), e);
+            throw new FlowableException("Error al guardar la propuesta en la base de datos: " + e.getMessage(), e);
         }
 
         task.setVariable("pdfPropuesta", pdfGenerado);
     }
 
-    /** Devuelve el texto sin espacios de los extremos, o null si viene vacío. */
+    /** Devuelve el texto sin espacios de los extremos, o null si viene vacio. */
     private static String textoOpcional(Object valor) {
         if (valor == null) {
             return null;
@@ -140,7 +105,7 @@ public class RegistrarElaborarPropuesta implements TaskListener {
         return texto.isEmpty() ? null : texto;
     }
 
-    /** Convierte el presupuesto a BigDecimal con 2 decimales. Vacío = 0.00. */
+    /** Convierte el presupuesto a BigDecimal con 2 decimales. Vacio = 0.00. */
     private static BigDecimal parsearPresupuesto(Object valor) {
         if (valor == null) {
             return new BigDecimal("0.00");
@@ -162,13 +127,11 @@ public class RegistrarElaborarPropuesta implements TaskListener {
         try {
             return new BigDecimal(texto).setScale(2, java.math.RoundingMode.HALF_UP);
         } catch (NumberFormatException e) {
-            throw new FlowableException("Presupuesto inválido: '" + valor + "'");
+            throw new FlowableException("Presupuesto invalido: '" + valor + "'");
         }
     }
 
-    /**
-     * Convierte la variable de fecha del formulario a LocalDate.
-     */
+    /** Convierte la variable de fecha del formulario a LocalDate. */
     private static LocalDate parsearFecha(Object valor, String nombreVariable) {
         if (valor == null) {
             return null;
@@ -212,52 +175,10 @@ public class RegistrarElaborarPropuesta implements TaskListener {
             return LocalDateTime.parse(texto).toLocalDate();
         } catch (DateTimeParseException ignorada) { }
 
-        throw new FlowableException("Fecha inválida en '" + nombreVariable + "': '" + texto + "'");
+        throw new FlowableException("Fecha invalida en '" + nombreVariable + "': '" + texto + "'");
     }
 
     private static java.sql.Date aSqlDate(LocalDate fecha) {
         return fecha != null ? java.sql.Date.valueOf(fecha) : null;
-    }
-
-    /**
-     * Busca la empresa por usuario_flowable. Si no existe, la crea usando
-     * los datos del usuario en el IDM de Flowable.
-     */
-    private int obtenerOCrearEmpresa(Connection conn, ProcessEngineConfiguration config, String usuario) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT id_empresa FROM empresa WHERE usuario_flowable = ?")) {
-            ps.setString(1, usuario);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-            }
-        }
-
-        // No existe: se registra con los datos del usuario de Flowable
-        User user = config.getIdentityService().createUserQuery().userId(usuario).singleResult();
-        String nombreEmpresa = usuario;
-        String contacto = null;
-        if (user != null) {
-            String nombreCompleto = ((user.getFirstName() != null ? user.getFirstName() : "") + " "
-                    + (user.getLastName() != null ? user.getLastName() : "")).trim();
-            if (!nombreCompleto.isEmpty()) {
-                nombreEmpresa = nombreCompleto;
-            }
-            contacto = user.getEmail();
-        }
-
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO empresa (nombre_empresa, persona_contacto, usuario_flowable) VALUES (?, ?, ?)",
-                Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, nombreEmpresa);
-            ps.setString(2, contacto);
-            ps.setString(3, usuario);
-            ps.executeUpdate();
-            try (ResultSet rs = ps.getGeneratedKeys()) {
-                rs.next();
-                return rs.getInt(1);
-            }
-        }
     }
 }
