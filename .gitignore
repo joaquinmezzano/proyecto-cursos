@@ -21,3 +21,6 @@ Thumbs.db
 flowable-postgresql/
 flowable-postgres/
 Docker_Compose/
+
+business-simulator/venv/
+business-simulator/env/
