@@ -20,6 +20,9 @@ echo ">> Compilando flowable-scripts..."
 echo ">> Copiando el JAR a $CONTENEDOR..."
 docker cp "$JAR_ORIGEN" "$CONTENEDOR:$JAR_DESTINO"
 
+echo ">> Copiando el JAR de PDF a $CONTENEDOR..."
+docker cp ~/.m2/repository/com/github/librepdf/openpdf/1.3.32/openpdf-1.3.32.jar $CONTENEDOR:/app/WEB-INF/lib/openpdf-1.3.32.jar
+
 echo ">> Reiniciando $CONTENEDOR..."
 docker restart "$CONTENEDOR"
 
