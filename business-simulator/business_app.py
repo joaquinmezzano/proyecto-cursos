@@ -53,7 +53,7 @@ def enviar_mensaje(instance_id, msg_name, variables=None):
             st.success(f"Se envió la respuesta a Flowable, el evento es: {msg_name})")
             st.balloons()
         else:
-            st.error(f"Error en Flowable: {res_post.text}")
+            st.error(f"Error en Flowable: {res_put.text}")
     else:
         # Si no lo encuentra (ej: tocó "Aceptar" pero está en la fase de preparación)
         st.warning(f"⚠️ La instancia seleccionada NO está esperando la acción '{msg_name}' en este momento.")
@@ -97,11 +97,16 @@ tab_aceptar, tab_rechazar, tab_modificar, tab_nomina, tab_cancelar = st.tabs([
     "✔ Aceptar", "✖ Rechazar", "✏ Modificar", "📋 Enviar Nómina (aunq este no esta aun)", "🚫 Cancelar"
 ])
 
-# Opcion aceptar
+# Opcion aceptar: la empresa acepta e informa la fecha acordada de inicio del curso
 with tab_aceptar:
-    st.write("Aceptar la propuesta con las fechas y costos ya establecidos.")
+    st.write("Aceptar la propuesta indicando la fecha acordada de inicio del curso.")
+    fecha = st.date_input("Fecha acordada")
+    hora = st.time_input("Hora de inicio", step=60)
     if st.button("Confirmar Aceptación", type="primary"):
-        enviar_mensaje(instance_id, "Aceptación")
+        # Formato ISO 8601 con zona horaria de Argentina, que es lo que entiende el timer de Flowable
+        fecha_curso = f"{fecha.isoformat()}T{hora.strftime('%H:%M:%S')}-03:00"
+        enviar_mensaje(instance_id, "Aceptación",
+                       [{"name": "fechaCurso", "type": "string", "value": fecha_curso}])
 
 # # Opcion rechazar
 with tab_rechazar:

@@ -10,6 +10,7 @@ out/
 node_modules/
 
 .env
+.venv
 *.local
 venv/
 
