@@ -29,6 +29,17 @@ public class RegistrarSolicitud implements ExecutionListener {
     public void notify(DelegateExecution execution) {
         String idInstancia = execution.getProcessInstanceId();
 
+        // si la instancia la inicio el sitio web, la empresa y el curso ya estan en la bdd
+        // (el sitio manda idCurso/idEmpresa y vincula el id_instancia despues), asi que no se
+        // inserta nada para no duplicarlos. Solo se inserta si se inicio desde Flowable.
+        Integer idCursoWeb = entero(execution, "idCurso");
+        Integer idEmpresaWeb = entero(execution, "idEmpresa");
+        if (idCursoWeb != null && idEmpresaWeb != null) {
+            log("instancia " + idInstancia + " iniciada desde el sitio -> curso " + idCursoWeb
+                    + " (empresa " + idEmpresaWeb + "), no se inserta nada");
+            return;
+        }
+
         // aca empresaNombre y tematica tiene que tener valor si o si debido a que son not null en la db, sino no anda
         String empresaNombre = getVar(execution, "empresaNombre", "Empresa sin nombre para probar");
         String empresaCuit = getVar(execution, "empresaCuit", null);
