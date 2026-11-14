@@ -236,12 +236,61 @@ def pantalla_login():
         st.rerun()
 
 # pantalla cuando la empresa inicia sesion
+
 def pantalla_panel_empresa():
     usuario = st.session_state.usuario
     st.title("📋 Mis cursos")
     st.caption(f"{usuario['nombre']} · usuario {usuario['usuario']}")
     st.button("Cerrar sesion", on_click=cerrar_sesion)
-    st.info("Pendiente: listado de cursos, estado y actividades en preparacion (4.1.2).")
+    st.divider()
+    try:
+        cursos = obtener_cursos_empresa(usuario["id_empresa"])
+    except Exception as e:
+        st.error(f"No se pudieron cargar los cursos: {e}")
+        return
+    if not cursos:
+        st.info("Todavia no tiene cursos con acceso habilitado.")
+        return
+    st.subheader("Capacitaciones de mi empresa")
+    for curso in cursos:
+        with st.container(border=True):
+            st.subheader(curso["nombre"])
+            try:
+                estado_visible = obtener_estado_curso(curso)
+                st.write(f"**Estado:** {estado_visible}")
+            except requests.RequestException:
+                st.write("**Estado:** No disponible temporalmente")
+            st.write(
+                f"**Descripcion:** "
+                f"{curso['descripcion'] or 'Sin descripcion'}"
+            )
+            st.write(
+                f"**Participantes estimados:** "
+                f"{curso['cantidad_participantes'] or 'No especificado'}"
+            )
+            st.write(
+                f"**Fechas preferidas:** "
+                f"{curso['fechas_preferidas'] or 'No especificadas'}"
+            )
+            st.caption(f"Curso N.º {curso['id_curso']}")
+
+            if estado_visible == "En preparación" and curso["id_instancia"]:
+                st.markdown("**Actividades pendientes**")
+                try:
+                    actividades = obtener_actividades_pendientes(
+                        curso["id_instancia"]
+                    )
+                    if actividades:
+                        for actividad in actividades:
+                            st.write(f"◯ {actividad}")
+                    else:
+                        st.caption(
+                            "No hay tareas de usuario pendientes en este momento."
+                        )
+                except requests.RequestException:
+                    st.caption(
+                        "No se pudieron consultar las actividades pendientes."
+                    )
 
 # pantalla cuando un usuario inicia sesion
 def pantalla_panel_personal():
@@ -260,6 +309,166 @@ PANTALLAS = {
     "panel_empresa": pantalla_panel_empresa,
     "panel_personal": pantalla_panel_personal,
 }
+
+# Pantalla cuando la empresa inicia sesion
+
+def obtener_cursos_empresa(id_empresa):
+    """
+    Obtiene los cursos de una empresa que tienen
+    el acceso habilitado.
+    """
+    conn = db_conexion()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    id_curso,
+                    nombre,
+                    descripcion,
+                    estado,
+                    id_instancia,
+                    cantidad_participantes,
+                    fechas_preferidas
+                FROM curso
+                WHERE id_empresa = %s
+                  AND acceso_habilitado = TRUE
+                ORDER BY id_curso DESC;
+            """, (id_empresa,))
+
+            columnas = [col[0] for col in cursor.description]
+            filas = cursor.fetchall()
+
+            return [
+                dict(zip(columnas, fila))
+                for fila in filas
+            ]
+    finally:
+        conn.close()
+
+
+def obtener_actividades_activas(id_instancia):
+    """
+    Consulta las actividades activas de una instancia
+    utilizando la API REST de Flowable.
+    """
+    url = f"{FLOWABLE_URL}/runtime/executions"
+    respuesta = requests.get(
+        url,
+        params={"processInstanceId": id_instancia},
+        auth=(FLOWABLE_USER, FLOWABLE_PASS),
+        timeout=10
+    )
+    respuesta.raise_for_status()
+    return respuesta.json().get("data", [])
+
+
+def obtener_actividades_pendientes(id_instancia):
+    """
+    Devuelve los nombres de las tareas de usuario
+    pendientes en una instancia.
+    """
+    tareas = obtener_tareas_activas(id_instancia)
+    actividades = []
+    for tarea in tareas:
+        nombre = tarea.get("name")
+        if nombre:
+            actividades.append(nombre)
+    return actividades
+
+
+def obtener_estado_curso(curso):
+    """
+    Determina el estado visible del curso
+    consultando PostgreSQL y Flowable.
+    """
+
+    estado_bd = curso["estado"]
+
+    # Primero comprobar si el curso terminó
+    estados_finales = {
+        "FINALIZADO": "Finalizado",
+        "CANCELADO": "Cancelado",
+        "RECHAZADO": "Rechazado",
+        "SIN_RESPUESTA": "Sin respuesta",
+        "NO_VIABLE": "No viable"
+    }
+
+    if estado_bd in estados_finales:
+        return estados_finales[estado_bd]
+
+    if not curso["id_instancia"]:
+        return "Estado no disponible"
+
+    # Consultar las ejecuciones activas de Flowable
+    ejecuciones = obtener_actividades_activas(
+        curso["id_instancia"]
+    )
+
+    actividades = {
+        ejecucion["activityId"]
+        for ejecucion in ejecuciones
+        if ejecucion.get("activityId")
+    }
+
+    # Etapa de preparación
+    if "Preparar" in actividades:
+        return "En preparación"
+
+    # Etapa de elaboración del informe
+    if "Informe" in actividades or "EnviarInforme" in actividades:
+        return "En elaboración del informe"
+
+    # Etapa de desarrollo
+    if "Dictar" in actividades:
+        return "En desarrollo"
+
+    # Curso confirmado, pero todavía sin comenzar
+    if (
+        "Confirmar" in actividades
+        or "Activity_1018bdz" in actividades
+    ):
+        return "Confirmado y pendiente de inicio"
+
+    # No se pudo identificar la actividad actual
+    return "Estado no disponible"
+
+
+
+def obtener_tareas_activas(id_instancia):
+    """
+    Consulta las tareas de usuario pendientes
+    de una instancia de Flowable.
+    """
+    url = f"{FLOWABLE_URL}/runtime/tasks"
+    respuesta = requests.get(
+        url,
+        params={
+            "processInstanceId": id_instancia,
+            "size": 100
+        },
+        auth=(FLOWABLE_USER, FLOWABLE_PASS),
+        timeout=10
+    )
+    respuesta.raise_for_status()
+    return respuesta.json().get("data", [])
+
+
+def obtener_definicion_instancia(id_instancia):
+    """
+    Obtiene la definición BPMN utilizada
+    por una instancia de Flowable.
+    """
+    url = f"{FLOWABLE_URL}/runtime/process-instances/{id_instancia}"
+
+    respuesta = requests.get(
+        url,
+        auth=(FLOWABLE_USER, FLOWABLE_PASS),
+        timeout=10
+    )
+
+    respuesta.raise_for_status()
+
+    return respuesta.json()
 
 # Proteger las pantallas privadas: sin sesion, se manda al login
 pagina = st.session_state.pagina
