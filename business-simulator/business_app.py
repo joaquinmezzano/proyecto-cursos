@@ -59,6 +59,33 @@ def enviar_mensaje(instance_id, msg_name, variables=None):
         st.warning(f"⚠️ La instancia seleccionada NO está esperando la acción '{msg_name}' en este momento.")
 
 
+# envio de la nomina de participantes
+# "Recibir nómina" es una receive task (no un evento de mensaje), por eso no se usa
+# messageEventReceived: se busca la ejecución que está esperando en esa tarea y se la dispara con "trigger"
+def enviar_nomina(instance_id, nomina):
+    url_exec = f"{FLOWABLE_URL}/runtime/executions?processInstanceId={instance_id}&activityId=Nomina"
+    res_exec = requests.get(url_exec, auth=AUTH)
+
+    if res_exec.status_code == 200 and res_exec.json().get("data"):
+        exec_id = res_exec.json()["data"][0]["id"]
+
+        url_put = f"{FLOWABLE_URL}/runtime/executions/{exec_id}"
+        payload = {
+            "action": "trigger",
+            "variables": [{"name": "nominaParticipantes", "type": "string", "value": nomina}]
+        }
+        res_put = requests.put(url_put, json=payload, auth=AUTH)
+
+        if res_put.status_code in [200, 204]:
+            st.success("Se envió la nómina de participantes a Flowable")
+            st.balloons()
+        else:
+            st.error(f"Error en Flowable: {res_put.text}")
+    else:
+        # Si no la encuentra (ej: la propuesta todavía no fue aceptada o la nómina ya se envió)
+        st.warning("⚠️ La instancia seleccionada NO está esperando la nómina en este momento.")
+
+
 
 
 # Interfaz grafica
@@ -94,7 +121,7 @@ st.divider()
 st.subheader("2️⃣ Dada la propuesta, ¿Que queres hacer?")
 
 tab_aceptar, tab_rechazar, tab_modificar, tab_nomina, tab_cancelar = st.tabs([
-    "✔ Aceptar", "✖ Rechazar", "✏ Modificar", "📋 Enviar Nómina (aunq este no esta aun)", "🚫 Cancelar"
+    "✔ Aceptar", "✖ Rechazar", "✏ Modificar", "📋 Enviar Nómina", "🚫 Cancelar"
 ])
 
 # Opcion aceptar: la empresa acepta e informa la fecha acordada de inicio del curso
@@ -131,12 +158,12 @@ with tab_cancelar:
     if st.button("Solicitar Cancelación de Emergencia", type="primary"):
         enviar_mensaje(instance_id, "Cancelación")
 
-# Opcion nomina
-#with tab_nomina:
-#    st.write("Enviar la lista definitiva de participantes.")
-#    nomina = st.text_area("Lista de participantes (separados por coma):")
-#    if st.button("Enviar Nomina", type="primary"):
-#        if nomina:
-#            enviar_mensaje(instance_id, "Nómina de participantes", [{"name": "nominaParticipantes", "value": nomina}])
-#        else:
-#            st.error("Por favor, ingresa la nómina.")
+# Opcion nomina: la empresa envía la lista de participantes durante la preparación del curso
+with tab_nomina:
+    st.write("Enviar la nómina de participantes del curso.")
+    nomina = st.text_area("Lista de participantes (separados por coma):")
+    if st.button("Enviar Nómina", type="primary"):
+        if nomina.strip():
+            enviar_nomina(instance_id, nomina.strip())
+        else:
+            st.error("Por favor, ingresá la nómina.")
