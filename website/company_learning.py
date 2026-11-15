@@ -204,7 +204,10 @@ def autenticar_personal(usuario, clave):
     except requests.RequestException:
         return None
     if r.status_code == 200:
-        return {"rol": "personal", "usuario": usuario, "nombre": usuario}
+        datos = r.json()
+        id_usuario = datos.get("id") or usuario
+        nombre = " ".join(p for p in (datos.get("firstName"), datos.get("lastName")) if p) or id_usuario
+        return {"rol": "personal", "usuario": id_usuario, "nombre": nombre, "clave": clave}
     return None
 
 
@@ -296,9 +299,87 @@ def pantalla_panel_empresa():
 def pantalla_panel_personal():
     usuario = st.session_state.usuario
     st.title("🧑‍💼 Panel del personal")
-    st.caption(f"Usuario: {usuario['usuario']}")
-    st.button("Cerrar sesion", on_click=cerrar_sesion)
-    st.info("Pendiente: funciones de Administracion y del Equipo Docente (4.1.3 / 4.1.4).")
+    st.caption(f"{usuario['nombre']} · usuario {usuario['usuario']}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.button("Cerrar sesion", on_click=cerrar_sesion, use_container_width=True)
+    with col2:
+        st.button("🔄 Actualizar", use_container_width=True)  # para actualizar las consultas
+    st.divider()
+
+    try:
+        asignadas = obtener_tareas_personal(usuario, "assignee")
+        # candidateUser: tareas sin asignar donde el usuario es candidato, directo o por su grupo
+        disponibles = obtener_tareas_personal(usuario, "candidateUser")
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code in (401, 403):
+            st.error("Flowable rechazo las credenciales del usuario. Cierre sesion y vuelva a ingresar.")
+        else:
+            st.error(f"No se pudieron consultar las tareas: {e}")
+        return
+    except requests.RequestException as e:
+        st.error(f"No se pudo conectar con Flowable: {e}")
+        return
+
+    st.subheader(f"Mis tareas asignadas ({len(asignadas)})")
+    if asignadas:
+        for tarea in asignadas:
+            mostrar_tarea(tarea)
+    else:
+        st.caption("No tiene tareas asignadas.")
+
+    st.subheader(f"Disponibles para mi grupo ({len(disponibles)})")
+    if disponibles:
+        st.caption("Tareas sin asignar que puede reclamar cualquier integrante del grupo.")
+        for tarea in disponibles:
+            mostrar_tarea(tarea)
+    else:
+        st.caption("No hay tareas disponibles para su grupo.")
+
+
+def obtener_tareas_personal(usuario, filtro):
+    """
+    Consulta las tareas de usuario en Flowable con las credenciales del propio usuario. 
+    filtro: "assignee" (asignadas a el) o "candidateUser" (sin asignar, disponibles para el o para su grupo).
+    """
+    tareas = []
+    inicio = 0
+    while True:
+        respuesta = requests.get(
+            f"{FLOWABLE_URL}/runtime/tasks",
+            params={
+                filtro: usuario["usuario"],
+                "includeProcessVariables": "true",
+                "sort": "createTime",
+                "order": "asc",
+                "start": inicio,
+                "size": 100,
+            },
+            auth=(usuario["usuario"], usuario["clave"]),
+            timeout=10,
+        )
+        respuesta.raise_for_status()
+        pagina = respuesta.json()
+        tareas.extend(pagina.get("data", []))
+        inicio += pagina.get("size", 0)
+        if not pagina.get("data") or inicio >= pagina.get("total", 0):
+            return tareas
+
+
+def mostrar_tarea(tarea):
+    """Muestra una tarjeta con la tarea y el curso al que pertenece."""
+    variables = {v["name"]: v.get("value") for v in tarea.get("variables", [])}
+    with st.container(border=True):
+        # algunos nombres del modelo tienen saltos de linea
+        st.markdown(f"**{' '.join((tarea.get('name') or 'Tarea sin nombre').split())}**")
+        curso = variables.get("tematica") or "Curso sin nombre"
+        empresa = variables.get("nombreEmpresa") or "Empresa no informada"
+        st.write(f"Curso: {curso} · Empresa: {empresa}")
+        creada = (tarea.get("createTime") or "")[:16].replace("T", " ")
+        st.caption(
+            f"Curso N.º {variables.get('idCurso', '-')} · Creada: {creada} UTC · "
+            f"Instancia {tarea.get('processInstanceId')}"
+        )
 
 
 # router: decide que pantalla dibujar
