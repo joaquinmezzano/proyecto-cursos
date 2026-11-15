@@ -2,12 +2,12 @@
 # Compila flowable-scripts, copia el JAR al contenedor de Flowable y lo reinicia.
 #
 # Uso:
-#   ./script.sh                  # usa el contenedor "flowable-ui"
-#   ./script.sh otro-contenedor  # p. ej. ./script.sh flowable-persistente
+#   ./script.sh                  # usa el contenedor "flowable-persistente"
+#   ./script.sh otro-contenedor  # p. ej. ./script.sh flowable-ui
 
 set -euo pipefail
 
-CONTENEDOR="${1:-flowable-ui}"
+CONTENEDOR="${1:-flowable-persistente}"
 JAR_ORIGEN="flowable-scripts/target/flowable-scripts-1.0-SNAPSHOT.jar"
 JAR_DESTINO="/app/WEB-INF/lib/flowable-scripts.jar"
 
