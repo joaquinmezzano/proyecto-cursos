@@ -307,6 +307,11 @@ def pantalla_panel_personal():
         st.button("🔄 Actualizar", use_container_width=True)  # para actualizar las consultas
     st.divider()
 
+    # resultado de la ultima accion (reclamar / completar)
+    aviso = st.session_state.pop("aviso_tarea", None)
+    if aviso:
+        (st.success if aviso[0] == "ok" else st.error)(aviso[1])
+
     try:
         asignadas = obtener_tareas_personal(usuario, "assignee")
         # candidateUser: tareas sin asignar donde el usuario es candidato, directo o por su grupo
@@ -324,7 +329,7 @@ def pantalla_panel_personal():
     st.subheader(f"Mis tareas asignadas ({len(asignadas)})")
     if asignadas:
         for tarea in asignadas:
-            mostrar_tarea(tarea)
+            mostrar_tarea(tarea, "completar")
     else:
         st.caption("No tiene tareas asignadas.")
 
@@ -332,7 +337,7 @@ def pantalla_panel_personal():
     if disponibles:
         st.caption("Tareas sin asignar que puede reclamar cualquier integrante del grupo.")
         for tarea in disponibles:
-            mostrar_tarea(tarea)
+            mostrar_tarea(tarea, "reclamar")
     else:
         st.caption("No hay tareas disponibles para su grupo.")
 
@@ -366,12 +371,69 @@ def obtener_tareas_personal(usuario, filtro):
             return tareas
 
 
-def mostrar_tarea(tarea):
-    """Muestra una tarjeta con la tarea y el curso al que pertenece."""
+# tareas que necesitan datos propios para completarse (formulario / pagina dedicada).
+# Completarlas sin esos datos falla en el motor o saltea el PDF, asi que no se ofrecen aca.
+TAREAS_CON_PANTALLA_PROPIA = {
+    "Propuesta": "Se completa con el formulario de la propuesta.",
+    "Revisar": "Se completa con la revision de la propuesta (nueva version del PDF).",
+    "Activity_12i2hpf": "Se completa con la seleccion de recursos.",
+}
+
+
+def accion_tarea(id_tarea, nombre, accion):
+    """
+    Reclama o completa una tarea en Flowable con las credenciales del usuario.
+    Se usa como callback de los botones: deja el resultado en la sesion y Streamlit vuelve a dibujar el panel con las listas actualizadas.
+    """
+    usuario = st.session_state.usuario
+    cuerpo = {"action": "claim", "assignee": usuario["usuario"]} if accion == "reclamar" else {"action": "complete"}
+    hecho = "reclamada: ahora esta en sus tareas asignadas" if accion == "reclamar" else "completada"
+    try:
+        # antes de actuar se vuelve a leer la tarea: otro usuario pudo reclamarla o completarla
+        actual = requests.get(f"{FLOWABLE_URL}/runtime/tasks/{id_tarea}",
+                              auth=(usuario["usuario"], usuario["clave"]), timeout=10)
+        if actual.status_code == 404:
+            st.session_state.aviso_tarea = ("error", f"La tarea '{nombre}' ya no esta pendiente.")
+            return
+        actual.raise_for_status()
+        asignada_a = actual.json().get("assignee")
+        if accion == "reclamar" and asignada_a:
+            st.session_state.aviso_tarea = ("error", f"La tarea '{nombre}' ya fue reclamada por {asignada_a}.")
+            return
+        if accion == "completar" and asignada_a != usuario["usuario"]:
+            st.session_state.aviso_tarea = ("error", f"La tarea '{nombre}' no esta asignada a usted.")
+            return
+
+        respuesta = requests.post(f"{FLOWABLE_URL}/runtime/tasks/{id_tarea}", json=cuerpo,
+                                  auth=(usuario["usuario"], usuario["clave"]), timeout=15)
+    except requests.RequestException as e:
+        st.session_state.aviso_tarea = ("error", f"No se pudo conectar con Flowable: {e}")
+        return
+
+    if respuesta.status_code in (200, 201, 204):
+        st.session_state.aviso_tarea = ("ok", f"Tarea '{nombre}' {hecho}.")
+    elif respuesta.status_code == 409:
+        st.session_state.aviso_tarea = ("error", f"La tarea '{nombre}' ya fue reclamada por otro usuario.")
+    elif respuesta.status_code == 404:
+        st.session_state.aviso_tarea = ("error", f"La tarea '{nombre}' ya no esta pendiente.")
+    else:
+        try:
+            detalle = respuesta.json().get("exception") or respuesta.json().get("message")
+        except ValueError:
+            detalle = respuesta.text
+        st.session_state.aviso_tarea = ("error", f"No se pudo {accion} la tarea '{nombre}': {detalle}")
+
+
+def mostrar_tarea(tarea, accion):
+    """
+    Muestra una tarjeta con la tarea y el curso al que pertenece.
+    accion: "completar" (tareas asignadas al usuario) o "reclamar" (disponibles para su grupo).
+    """
     variables = {v["name"]: v.get("value") for v in tarea.get("variables", [])}
+    # algunos nombres del modelo tienen saltos de linea
+    nombre = " ".join((tarea.get("name") or "Tarea sin nombre").split())
     with st.container(border=True):
-        # algunos nombres del modelo tienen saltos de linea
-        st.markdown(f"**{' '.join((tarea.get('name') or 'Tarea sin nombre').split())}**")
+        st.markdown(f"**{nombre}**")
         curso = variables.get("tematica") or "Curso sin nombre"
         empresa = variables.get("nombreEmpresa") or "Empresa no informada"
         st.write(f"Curso: {curso} · Empresa: {empresa}")
@@ -380,6 +442,17 @@ def mostrar_tarea(tarea):
             f"Curso N.º {variables.get('idCurso', '-')} · Creada: {creada} UTC · "
             f"Instancia {tarea.get('processInstanceId')}"
         )
+        pantalla_propia = TAREAS_CON_PANTALLA_PROPIA.get(tarea.get("taskDefinitionKey"))
+        if accion == "completar" and pantalla_propia:
+            st.caption(f"ℹ️ {pantalla_propia} Todavia no esta disponible en el sitio.")
+        else:
+            st.button(
+                "✅ Completar" if accion == "completar" else "✋ Reclamar",
+                key=f"{accion}_{tarea['id']}",
+                on_click=accion_tarea,
+                args=(tarea["id"], nombre, accion),
+                type="primary" if accion == "completar" else "secondary",
+            )
 
 
 # router: decide que pantalla dibujar
