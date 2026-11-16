@@ -4,6 +4,7 @@ import requests
 import hashlib
 import hmac
 import re
+import datetime
 
 # configuracion flowable y bdd de institucion
 FLOWABLE_URL = "http://localhost:8080/flowable-ui/process-api"
@@ -342,6 +343,90 @@ def pantalla_panel_personal():
         st.caption("No hay tareas disponibles para su grupo.")
 
 
+
+def form_propuesta(tarea, nombre, variables, es_revision):
+    """
+    Administracion:
+    Registrar y elaborar una propuesta y revisar una propuesta, formularios similares, ademas completarla.
+
+    Formulario unico para 'Propuesta' y 'Revisar'.
+    """
+    if es_revision:
+        obs = variables.get("observaciones") or "Sin observaciones detalladas."
+        st.warning(f"📝 **Observaciones de la empresa:** {obs}")
+
+    nombre_fijo = variables.get("nombreCurso") or variables.get("tematica") or ""
+
+    with st.form(key=f"form_propuesta_{tarea['id']}"):
+        # En revision mostramos el nombre como lectura para no cambiar el curso solicitado
+        if es_revision:
+            st.text_input("Curso", value=nombre_fijo, disabled=True)
+            nombre_curso = nombre_fijo
+        else:
+            nombre_curso = st.text_input("Nombre del curso *", value=nombre_fijo)
+
+        programa = st.text_area(
+            "Programa del curso *",
+            value=variables.get("programa") or ""
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            presupuesto = st.number_input(
+                "Presupuesto ($) *",
+                min_value=0.0,
+                step=1000.0,
+                value=float(variables.get("presupuesto") or 0.0)
+            )
+            fecha1 = st.date_input(
+                "Fecha posible 1 *",
+                value=parsear_fecha_ui(variables.get("fechaposible1"), datetime.date.today() + datetime.timedelta(days=7))
+            )
+
+        with col2:
+            usar_f2 = st.checkbox("Incluir fecha posible 2", value=bool(variables.get("fechaposible2")))
+            fecha2 = st.date_input(
+                "Fecha posible 2",
+                value=parsear_fecha_ui(variables.get("fechaposible2"), datetime.date.today() + datetime.timedelta(days=14))
+            )
+
+        otras_fechas = st.text_input(
+            "Otras fechas (opcional)",
+            value=variables.get("otrasfechasopcional") or ""
+            )
+
+        texto_btn = "📤 Enviar propuesta revisada" if es_revision else "📤 Generar PDF y enviar propuesta"
+        enviado = st.form_submit_button(texto_btn, type="primary", use_container_width=True)
+
+    if enviado:
+        if not nombre_curso.strip() or not programa.strip():
+            st.error("El nombre del curso y el programa son obligatorios.")
+            return
+
+        payload_vars = [
+            {"name": "nombreCurso", "value": nombre_curso.strip()},
+            {"name": "programa", "value": programa.strip()},
+            {"name": "presupuesto", "value": float(presupuesto)},
+            {"name": "fechaposible1", "value": fecha1.isoformat()},
+            {"name": "fechaposible2", "value": fecha2.isoformat() if usar_f2 else ""},
+            {"name": "otrasfechasopcional", "value": otras_fechas.strip()},
+        ]
+        accion_tarea(tarea["id"], nombre, "completar", payload_vars)
+        st.rerun()
+
+
+def parsear_fecha_ui(valor, defecto):
+    """
+    para que no haya error de tipos, ya que flowable da la fecha en formato texto, convierte texto a date
+    """
+    if not valor:
+        return defecto
+    try:
+        return datetime.date.fromisoformat(str(valor)[:10])
+    except ValueError:
+        return defecto
+
+
 def obtener_tareas_personal(usuario, filtro):
     """
     Consulta las tareas de usuario en Flowable con las credenciales del propio usuario. 
@@ -371,22 +456,29 @@ def obtener_tareas_personal(usuario, filtro):
             return tareas
 
 
-# tareas que necesitan datos propios para completarse (formulario / pagina dedicada).
-# Completarlas sin esos datos falla en el motor o saltea el PDF, asi que no se ofrecen aca.
+# tarea que necesitan datos propios para completarse
+# Completarla sin esos datos falla en el motor asi que por ahora no se ofrecen aca.
 TAREAS_CON_PANTALLA_PROPIA = {
-    "Propuesta": "Se completa con el formulario de la propuesta.",
-    "Revisar": "Se completa con la revision de la propuesta (nueva version del PDF).",
     "Activity_12i2hpf": "Se completa con la seleccion de recursos.",
 }
 
 
-def accion_tarea(id_tarea, nombre, accion):
+def accion_tarea(id_tarea, nombre, accion, variables=None):
     """
     Reclama o completa una tarea en Flowable con las credenciales del usuario.
     Se usa como callback de los botones: deja el resultado en la sesion y Streamlit vuelve a dibujar el panel con las listas actualizadas.
     """
     usuario = st.session_state.usuario
-    cuerpo = {"action": "claim", "assignee": usuario["usuario"]} if accion == "reclamar" else {"action": "complete"}
+    """
+    si se completa una tarea y ademas tiene variables, se pasan en el cuerpo, por ejemplo los formularios de la propuesta(generar o revisar)
+    """
+    if accion == "reclamar":
+            cuerpo = {"action": "claim", "assignee": usuario["usuario"]}
+    else:
+       cuerpo = {"action": "complete"}
+       if variables:
+           cuerpo["variables"] = variables
+
     hecho = "reclamada: ahora esta en sus tareas asignadas" if accion == "reclamar" else "completada"
     try:
         # antes de actuar se vuelve a leer la tarea: otro usuario pudo reclamarla o completarla
@@ -432,6 +524,8 @@ def mostrar_tarea(tarea, accion):
     variables = {v["name"]: v.get("value") for v in tarea.get("variables", [])}
     # algunos nombres del modelo tienen saltos de linea
     nombre = " ".join((tarea.get("name") or "Tarea sin nombre").split())
+    task_key = tarea.get("taskDefinitionKey")
+
     with st.container(border=True):
         st.markdown(f"**{nombre}**")
         curso = variables.get("tematica") or "Curso sin nombre"
@@ -442,6 +536,11 @@ def mostrar_tarea(tarea, accion):
             f"Curso N.º {variables.get('idCurso', '-')} · Creada: {creada} UTC · "
             f"Instancia {tarea.get('processInstanceId')}"
         )
+
+        if accion == "completar" and task_key in ("Propuesta", "Revisar"):
+            form_propuesta(tarea, nombre, variables, es_revision=(task_key == "Revisar"))
+            return
+
         pantalla_propia = TAREAS_CON_PANTALLA_PROPIA.get(tarea.get("taskDefinitionKey"))
         if accion == "completar" and pantalla_propia:
             st.caption(f"ℹ️ {pantalla_propia} Todavia no esta disponible en el sitio.")
