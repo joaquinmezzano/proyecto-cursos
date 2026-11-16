@@ -11,6 +11,7 @@ FLOWABLE_URL = "http://localhost:8080/flowable-ui/process-api"
 FLOWABLE_USER = "admin"
 FLOWABLE_PASS = "test"
 PROCESS_KEY = "Process_Curso"
+GRUPO_DOCENTES = "docentes"
 
 DB_HOST = "localhost"
 DB_PORT = "5434"
@@ -393,7 +394,7 @@ def form_propuesta(tarea, nombre, variables, es_revision):
         otras_fechas = st.text_input(
             "Otras fechas (opcional)",
             value=variables.get("otrasfechasopcional") or ""
-            )
+        )
 
         texto_btn = "📤 Enviar propuesta revisada" if es_revision else "📤 Generar PDF y enviar propuesta"
         enviado = st.form_submit_button(texto_btn, type="primary", use_container_width=True)
@@ -414,6 +415,54 @@ def form_propuesta(tarea, nombre, variables, es_revision):
         accion_tarea(tarea["id"], nombre, "completar", payload_vars)
         st.rerun()
 
+# devuelve los integrantes del grupo 'docentes' de flowable.
+def obtener_docentes():
+    respuesta = requests.get(
+        f"{FLOWABLE_URL}/identity/users",
+        params={"memberOfGroup": GRUPO_DOCENTES, "size": 100, "sort": "id"},
+        auth=(FLOWABLE_USER, FLOWABLE_PASS),
+        timeout=10,
+    )
+    respuesta.raise_for_status()
+    return respuesta.json().get("data", [])
+
+
+def form_definir_docente(tarea, nombre):
+    """
+    El jefe elige un integrante del equipo (puede ser el mismo) y completa la tarea.
+    El elegido se guarda en la variable 'docenteAsignadoCurso'; la tarea 'Desarrollar curso'
+    la usa como responsable (${docenteAsignadoCurso}) cuando se crea, al llegar la fecha programada.
+    """
+    usuario = st.session_state.usuario
+    try:
+        docentes = obtener_docentes()
+    except requests.RequestException as e:
+        st.error(f"No se pudo obtener el equipo docente: {e}")
+        return
+
+    if not docentes:
+        st.warning(f"El grupo '{GRUPO_DOCENTES}' no tiene integrantes en Flowable.")
+        return
+
+    nombres = {}
+    for d in docentes:
+        completo = " ".join(p for p in (d.get("firstName"), d.get("lastName")) if p) or d["id"]
+        nombres[d["id"]] = f"{completo} ({d['id']})" + (" — usted" if d["id"] == usuario["usuario"] else "")
+
+    with st.form(key=f"form_docente_{tarea['id']}"):
+        elegido = st.selectbox(
+            "Docente que desarrollara el curso *",
+            options=list(nombres.keys()),
+            format_func=lambda id_docente: nombres[id_docente],
+        )
+        enviado = st.form_submit_button("👩‍🏫 Asignar docente y completar", type="primary",
+                                        use_container_width=True)
+
+    if enviado:
+        accion_tarea(tarea["id"], nombre, "completar",
+                     [{"name": "docenteAsignadoCurso", "value": elegido}])
+        st.rerun()
+
 
 def parsear_fecha_ui(valor, defecto):
     """
@@ -429,7 +478,7 @@ def parsear_fecha_ui(valor, defecto):
 
 def obtener_tareas_personal(usuario, filtro):
     """
-    Consulta las tareas de usuario en Flowable con las credenciales del propio usuario. 
+    Consulta las tareas de usuario en Flowable con las credenciales del propio usuario.
     filtro: "assignee" (asignadas a el) o "candidateUser" (sin asignar, disponibles para el o para su grupo).
     """
     tareas = []
@@ -473,11 +522,11 @@ def accion_tarea(id_tarea, nombre, accion, variables=None):
     si se completa una tarea y ademas tiene variables, se pasan en el cuerpo, por ejemplo los formularios de la propuesta(generar o revisar)
     """
     if accion == "reclamar":
-            cuerpo = {"action": "claim", "assignee": usuario["usuario"]}
+        cuerpo = {"action": "claim", "assignee": usuario["usuario"]}
     else:
-       cuerpo = {"action": "complete"}
-       if variables:
-           cuerpo["variables"] = variables
+        cuerpo = {"action": "complete"}
+        if variables:
+            cuerpo["variables"] = variables
 
     hecho = "reclamada: ahora esta en sus tareas asignadas" if accion == "reclamar" else "completada"
     try:
@@ -541,12 +590,24 @@ def mostrar_tarea(tarea, accion):
             form_propuesta(tarea, nombre, variables, es_revision=(task_key == "Revisar"))
             return
 
+        # Equipo docente: el jefe elige quien dicta el curso
+        if accion == "completar" and task_key == "Activity_1018bdz":
+            form_definir_docente(tarea, nombre)
+            return
+
+        if accion == "completar" and task_key == "Dictar":
+            texto_boton = "🎓 Registrar finalizacion del dictado"
+        elif accion == "completar":
+            texto_boton = "✅ Completar"
+        else:
+            texto_boton = "✋ Reclamar"
+
         pantalla_propia = TAREAS_CON_PANTALLA_PROPIA.get(tarea.get("taskDefinitionKey"))
         if accion == "completar" and pantalla_propia:
             st.caption(f"ℹ️ {pantalla_propia} Todavia no esta disponible en el sitio.")
         else:
             st.button(
-                "✅ Completar" if accion == "completar" else "✋ Reclamar",
+                texto_boton,
                 key=f"{accion}_{tarea['id']}",
                 on_click=accion_tarea,
                 args=(tarea["id"], nombre, accion),
@@ -574,19 +635,19 @@ def obtener_cursos_empresa(id_empresa):
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT
-                    id_curso,
-                    nombre,
-                    descripcion,
-                    estado,
-                    id_instancia,
-                    cantidad_participantes,
-                    fechas_preferidas
-                FROM curso
-                WHERE id_empresa = %s
-                  AND acceso_habilitado = TRUE
-                ORDER BY id_curso DESC;
-            """, (id_empresa,))
+                           SELECT
+                               id_curso,
+                               nombre,
+                               descripcion,
+                               estado,
+                               id_instancia,
+                               cantidad_participantes,
+                               fechas_preferidas
+                           FROM curso
+                           WHERE id_empresa = %s
+                             AND acceso_habilitado = TRUE
+                           ORDER BY id_curso DESC;
+                           """, (id_empresa,))
 
             columnas = [col[0] for col in cursor.description]
             filas = cursor.fetchall()
@@ -677,8 +738,8 @@ def obtener_estado_curso(curso):
 
     # Curso confirmado, pero todavía sin comenzar
     if (
-        "Confirmar" in actividades
-        or "Activity_1018bdz" in actividades
+            "Confirmar" in actividades
+            or "Activity_1018bdz" in actividades
     ):
         return "Confirmado y pendiente de inicio"
 
