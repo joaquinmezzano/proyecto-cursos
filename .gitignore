@@ -13,6 +13,8 @@ node_modules/
 .venv
 *.local
 venv/
+__pycache__/
+*.pyc
 
 *.log
 log.txt

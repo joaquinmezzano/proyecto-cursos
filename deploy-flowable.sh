@@ -2,14 +2,17 @@
 # Compila flowable-scripts, copia el JAR al contenedor de Flowable y lo reinicia.
 #
 # Uso:
-#   ./script.sh                  # usa el contenedor "flowable-ui"
-#   ./script.sh otro-contenedor  # p. ej. ./script.sh flowable-persistente
+#   ./script.sh                  # usa el contenedor "flowable-persistente"
+#   ./script.sh otro-contenedor  # p. ej. ./script.sh flowable-ui
 
 set -euo pipefail
 
-CONTENEDOR="${1:-flowable-ui}"
+CONTENEDOR="${1:-flowable-persistente}"
 JAR_ORIGEN="flowable-scripts/target/flowable-scripts-1.0-SNAPSHOT.jar"
 JAR_DESTINO="/app/WEB-INF/lib/flowable-scripts.jar"
+
+# openpdf para siempre xq sino se reestablece
+OPENPDF_ORIGEN=$(find ~/.m2/repository/com/github/librepdf/openpdf -name "openpdf-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
 
 # Pararse en proyecto-cursos (la carpeta donde está este script), se ejecute desde donde se ejecute
 cd "$(dirname "$(readlink -f "$0")")"
@@ -20,8 +23,12 @@ echo ">> Compilando flowable-scripts..."
 echo ">> Copiando el JAR a $CONTENEDOR..."
 docker cp "$JAR_ORIGEN" "$CONTENEDOR:$JAR_DESTINO"
 
-echo ">> Copiando el JAR de PDF a $CONTENEDOR..."
-docker cp ~/.m2/repository/com/github/librepdf/openpdf/1.3.32/openpdf-1.3.32.jar $CONTENEDOR:/app/WEB-INF/lib/openpdf-1.3.32.jar
+if [ -n "$OPENPDF_ORIGEN" ]; then
+    docker cp "$OPENPDF_ORIGEN" "$CONTENEDOR:/app/WEB-INF/lib/"
+    echo "   - OpenPDF copiado: $(basename "$OPENPDF_ORIGEN")"
+else
+    echo "   ! Advertencia: No se encontró openpdf en ~/.m2"
+fi
 
 echo ">> Reiniciando $CONTENEDOR..."
 docker restart "$CONTENEDOR"
