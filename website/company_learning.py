@@ -464,6 +464,225 @@ def form_definir_docente(tarea, nombre):
         st.rerun()
 
 
+def separar_participantes(texto, separadores=r"\n"):
+    """
+    Convierte un texto en la lista de participantes.
+    """
+    participantes = []
+    vistos = set()
+    for parte in re.split(f"[{separadores}]+", str(texto or "")):
+        nombre = " ".join(parte.split())
+        if nombre and nombre.casefold() not in vistos:
+            vistos.add(nombre.casefold())
+            participantes.append(nombre)
+    return participantes
+
+
+def form_lista_definitiva(tarea, nombre, variables):
+    """
+    Administracion: Confeccionar lista definitiva.
+    Se parte de la nomina que envio la empresa (variable 'nominaParticipantes'), el administrativo
+    la corrige si hace falta y al completar la lista queda guardada como variables del proceso: 
+    'listaDefinitiva' (un participante por renglon) y 'cantidadInscriptos'.
+    No se verifican los datos individuales de cada participante.
+    """
+    nomina = variables.get("nominaParticipantes")
+    # la nomina de la empresa llega separada por comas (o por renglones)
+    recibidos = separar_participantes(nomina, separadores=r",;\n")
+
+    if recibidos:
+        st.info(f"📋 Nomina enviada por la empresa: {len(recibidos)} participante(s).")
+    else:
+        st.warning("La instancia no tiene una nomina cargada. Ingrese los participantes manualmente.")
+
+    with st.form(key=f"form_lista_{tarea['id']}"):
+        texto = st.text_area(
+            "Lista definitiva de participantes * (uno por renglon)",
+            value=variables.get("listaDefinitiva") or "\n".join(recibidos),
+            height=220,
+        )
+        enviado = st.form_submit_button("📋 Confirmar lista definitiva y completar", type="primary",
+                                        use_container_width=True)
+
+    if enviado:
+        lista = separar_participantes(texto)
+        if not lista:
+            st.error("La lista definitiva debe tener al menos un participante.")
+            return
+
+        accion_tarea(tarea["id"], nombre, "completar", [
+            {"name": "listaDefinitiva", "value": "\n".join(lista)},
+            {"name": "cantidadInscriptos", "value": len(lista)},
+        ])
+        st.rerun()
+
+
+# recursos que se pueden pedir en 'Evaluar recursos': (variable del proceso, etiqueta, que hace el motor)
+# las variables son las condiciones de la compuerta inclusiva 'Recursos necesarios' del modelo
+RECURSOS_CURSO = [
+    ("requiereAula", "🏫 Aula fisica", "La reserva del aula es automatica."),
+    ("requierePlataforma", "💻 Aula virtual", "Se crea la tarea 'Solicitar Aula Virtual'."),
+    ("requiereEquipamiento", "🎛️ Equipamiento especial", "Se crea la tarea 'Contratar equipamiento'."),
+]
+
+
+def abrir_evaluar_recursos(tarea, nombre, variables):
+    """Callback del panel: guarda la tarea elegida y abre la pagina de seleccion de recursos."""
+    st.session_state.tarea_recursos = {
+        "id": tarea["id"],
+        "nombre": nombre,
+        "curso": variables.get("tematica") or "Curso sin nombre",
+        "empresa": variables.get("nombreEmpresa") or "Empresa no informada",
+        "id_curso": variables.get("idCurso", "-"),
+    }
+    st.session_state.pagina = "panel_recursos"
+
+
+def pantalla_evaluar_recursos():
+    """
+    Administracion: Evaluar recursos.
+    Pagina para elegir aula fisica, aula virtual y/o equipamiento especial (al menos uno).
+    Al completar se mandan las tres variables booleanas y el motor activa solo las ramas elegidas.
+    """
+    datos = st.session_state.get("tarea_recursos")
+    if not datos:
+        st.session_state.pagina = "panel_personal"
+        st.rerun()
+
+    st.button("⬅ Volver al panel", on_click=ir_a, args=("panel_personal",))
+    st.title("🧰 Evaluar recursos")
+    st.write(f"Curso: {datos['curso']} · Empresa: {datos['empresa']}")
+    st.caption(f"Curso N.º {datos['id_curso']}")
+
+    with st.form(key=f"form_recursos_{datos['id']}"):
+        st.markdown("**Recursos necesarios para el curso *** (seleccione al menos uno)")
+        elegidos = {}
+        for variable, etiqueta, efecto in RECURSOS_CURSO:
+            elegidos[variable] = st.checkbox(etiqueta, help=efecto)
+        enviado = st.form_submit_button("🧰 Confirmar recursos y completar", type="primary",
+                                        use_container_width=True)
+
+    if enviado:
+        if not any(elegidos.values()):
+            st.error("Debe seleccionar al menos un recurso.")
+            return
+
+        # se mandan las tres, tambien las que quedan en false: la compuerta evalua todas las condiciones
+        accion_tarea(datos["id"], datos["nombre"], "completar",
+                     [{"name": variable, "value": bool(valor)} for variable, valor in elegidos.items()])
+        # el resultado (ok o error) se muestra en el panel
+        st.session_state.pop("tarea_recursos", None)
+        st.session_state.pagina = "panel_personal"
+        st.rerun()
+
+
+# informe de resultados: el PDF queda como variable binaria del proceso y el resumen como variable de texto
+VAR_PDF_INFORME = "pdfInforme"
+VAR_RESUMEN_INFORME = "informeResultados"
+
+
+def guardar_pdf_informe(id_instancia, contenido):
+    """Guarda (o reemplaza) el PDF del informe como variable binaria de la instancia."""
+    usuario = st.session_state.usuario
+    respuesta = requests.put(
+        f"{FLOWABLE_URL}/runtime/process-instances/{id_instancia}/variables",
+        files={"file": ("informe.pdf", contenido, "application/pdf")},
+        data={"name": VAR_PDF_INFORME, "type": "binary"},
+        auth=(usuario["usuario"], usuario["clave"]),
+        timeout=20,
+    )
+    respuesta.raise_for_status()
+
+
+def descargar_pdf_informe(id_instancia):
+    """Devuelve los bytes del PDF del informe, o None si la instancia no tiene uno cargado."""
+    usuario = st.session_state.usuario
+    respuesta = requests.get(
+        f"{FLOWABLE_URL}/runtime/process-instances/{id_instancia}/variables/{VAR_PDF_INFORME}/data",
+        auth=(usuario["usuario"], usuario["clave"]),
+        timeout=20,
+    )
+    if respuesta.status_code == 404:
+        return None
+    respuesta.raise_for_status()
+    return respuesta.content
+
+
+def guardar_informe_bd(id_instancia, resumen):
+    """Deja el informe de resultados en el curso de la base de la institucion."""
+    conn = db_conexion()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE curso SET informe_resultados = %s WHERE id_instancia = %s;",
+                        (resumen, id_instancia))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def form_informe(tarea, nombre, variables):
+    """
+    Equipo docente: Elaborar informe de resultados.
+    El jefe escribe el resumen de resultados y adjunta el informe en PDF. El resumen se guarda en la
+    base (curso.informe_resultados) y en la variable 'informeResultados'; el PDF en 'pdfInforme'.
+    """
+    with st.form(key=f"form_informe_{tarea['id']}"):
+        resumen = st.text_area("Resumen de resultados *", value=variables.get(VAR_RESUMEN_INFORME) or "",
+                               height=160)
+        archivo = st.file_uploader("Informe en PDF *", type=["pdf"])
+        enviado = st.form_submit_button("📄 Guardar informe y completar", type="primary",
+                                        use_container_width=True)
+
+    if enviado:
+        if not resumen.strip() or archivo is None:
+            st.error("El resumen de resultados y el informe en PDF son obligatorios.")
+            return
+        contenido = archivo.getvalue()
+        if not contenido.startswith(b"%PDF"):
+            st.error("El archivo adjunto no es un PDF valido.")
+            return
+
+        id_instancia = tarea.get("processInstanceId")
+        try:
+            guardar_informe_bd(id_instancia, resumen.strip())
+            guardar_pdf_informe(id_instancia, contenido)
+        except Exception as e:
+            st.error(f"No se pudo guardar el informe: {e}")
+            return
+
+        accion_tarea(tarea["id"], nombre, "completar",
+                     [{"name": VAR_RESUMEN_INFORME, "value": resumen.strip()}])
+        st.rerun()
+
+
+def panel_enviar_informe(tarea, nombre, variables):
+    """
+    Jefe administrativo: consultar el informe de resultados (resumen y PDF) y completar
+    'Enviar informe a empresa y archivar expediente'.
+    """
+    id_instancia = tarea.get("processInstanceId")
+    resumen = variables.get(VAR_RESUMEN_INFORME)
+    try:
+        pdf = descargar_pdf_informe(id_instancia)
+    except requests.RequestException as e:
+        pdf = None
+        st.error(f"No se pudo consultar el PDF del informe: {e}")
+
+    st.markdown("**Informe de resultados**")
+    if resumen:
+        st.text(resumen)
+    if pdf:
+        st.download_button("📥 Descargar informe (PDF)", data=pdf,
+                           file_name=f"Informe_curso_{variables.get('idCurso', id_instancia)}.pdf",
+                           mime="application/pdf", key=f"pdf_informe_{tarea['id']}")
+    if not resumen and not pdf:
+        st.warning("Esta instancia no tiene un informe cargado desde el sitio. "
+                   "Si se elaboro desde Flowable, consultelo alli antes de enviarlo.")
+
+    st.button("📨 Enviar informe a la empresa y archivar expediente", key=f"completar_{tarea['id']}",
+              on_click=accion_tarea, args=(tarea["id"], nombre, "completar"), type="primary")
+
+
 def parsear_fecha_ui(valor, defecto):
     """
     para que no haya error de tipos, ya que flowable da la fecha en formato texto, convierte texto a date
@@ -503,13 +722,6 @@ def obtener_tareas_personal(usuario, filtro):
         inicio += pagina.get("size", 0)
         if not pagina.get("data") or inicio >= pagina.get("total", 0):
             return tareas
-
-
-# tarea que necesitan datos propios para completarse
-# Completarla sin esos datos falla en el motor asi que por ahora no se ofrecen aca.
-TAREAS_CON_PANTALLA_PROPIA = {
-    "Activity_12i2hpf": "Se completa con la seleccion de recursos.",
-}
 
 
 def accion_tarea(id_tarea, nombre, accion, variables=None):
@@ -590,9 +802,30 @@ def mostrar_tarea(tarea, accion):
             form_propuesta(tarea, nombre, variables, es_revision=(task_key == "Revisar"))
             return
 
+        # Administracion: confeccionar la lista definitiva a partir de la nomina de la empresa
+        if accion == "completar" and task_key == "Lista":
+            form_lista_definitiva(tarea, nombre, variables)
+            return
+
         # Equipo docente: el jefe elige quien dicta el curso
         if accion == "completar" and task_key == "Activity_1018bdz":
             form_definir_docente(tarea, nombre)
+            return
+
+        # Administracion: evaluar recursos se completa en una pagina propia
+        if accion == "completar" and task_key == "Activity_12i2hpf":
+            st.button("🧰 Seleccionar recursos", key=f"recursos_{tarea['id']}",
+                      on_click=abrir_evaluar_recursos, args=(tarea, nombre, variables), type="primary")
+            return
+
+        # Equipo docente: el jefe carga el informe de resultados (resumen + PDF)
+        if accion == "completar" and task_key == "Informe":
+            form_informe(tarea, nombre, variables)
+            return
+
+        # Jefe administrativo: consulta el informe y lo envia a la empresa
+        if accion == "completar" and task_key == "EnviarInforme":
+            panel_enviar_informe(tarea, nombre, variables)
             return
 
         if accion == "completar" and task_key == "Dictar":
@@ -602,17 +835,13 @@ def mostrar_tarea(tarea, accion):
         else:
             texto_boton = "✋ Reclamar"
 
-        pantalla_propia = TAREAS_CON_PANTALLA_PROPIA.get(tarea.get("taskDefinitionKey"))
-        if accion == "completar" and pantalla_propia:
-            st.caption(f"ℹ️ {pantalla_propia} Todavia no esta disponible en el sitio.")
-        else:
-            st.button(
-                texto_boton,
-                key=f"{accion}_{tarea['id']}",
-                on_click=accion_tarea,
-                args=(tarea["id"], nombre, accion),
-                type="primary" if accion == "completar" else "secondary",
-            )
+        st.button(
+            texto_boton,
+            key=f"{accion}_{tarea['id']}",
+            on_click=accion_tarea,
+            args=(tarea["id"], nombre, accion),
+            type="primary" if accion == "completar" else "secondary",
+        )
 
 
 # router: decide que pantalla dibujar
@@ -622,6 +851,7 @@ PANTALLAS = {
     "login": pantalla_login,
     "panel_empresa": pantalla_panel_empresa,
     "panel_personal": pantalla_panel_personal,
+    "panel_recursos": pantalla_evaluar_recursos,
 }
 
 # Pantalla cuando la empresa inicia sesion
@@ -740,6 +970,7 @@ def obtener_estado_curso(curso):
     if (
             "Confirmar" in actividades
             or "Activity_1018bdz" in actividades
+            or "Fecha" in actividades
     ):
         return "Confirmado y pendiente de inicio"
 
