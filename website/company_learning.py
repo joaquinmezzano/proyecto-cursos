@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import datetime
+from analisis_ejecuciones import pantalla_analisis
 
 # configuracion flowable y bdd de institucion
 FLOWABLE_URL = "http://localhost:8080/flowable-ui/process-api"
@@ -53,7 +54,7 @@ def pantalla_inicio():
     st.markdown("Bienvenido. ¿Que desea hacer?")
     st.write("")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         with st.container(border=True):
             st.subheader("📝 Solicitar un curso")
@@ -65,7 +66,11 @@ def pantalla_inicio():
             st.subheader("🔐 Iniciar sesion")
             st.caption("Si su empresa ya acepto una propuesta, ingrese para ver el estado de sus cursos.")
             st.button("Ingresar", on_click=ir_a, args=("login",), use_container_width=True)
-
+    with col3:
+        with st.container(border=True):
+            st.subheader("📊 Análisis de ejecuciones")
+            st.caption("Ingresá con tu usuario de Flowable para consultar el historial.")
+            st.button("Consultar historial", on_click=ir_a, args=("analisis",), use_container_width=True)
 
 # formulario de solicitud
 def pantalla_formulario():
@@ -843,6 +848,11 @@ def mostrar_tarea(tarea, accion):
             type="primary" if accion == "completar" else "secondary",
         )
 
+#Panel para la muestras de analisis
+def pantalla_analisis_ejecuciones():
+    boton_volver()
+    pantalla_analisis()
+
 
 # router: decide que pantalla dibujar
 PANTALLAS = {
@@ -852,6 +862,7 @@ PANTALLAS = {
     "panel_empresa": pantalla_panel_empresa,
     "panel_personal": pantalla_panel_personal,
     "panel_recursos": pantalla_evaluar_recursos,
+    "analisis": pantalla_analisis_ejecuciones,
 }
 
 # Pantalla cuando la empresa inicia sesion
