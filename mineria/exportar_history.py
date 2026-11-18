@@ -9,14 +9,23 @@ import requests
 BASE_URL = "http://localhost:8080/flowable-ui/process-api"
 
 # ID del elemento <process id="..."> del BPMN.
-PROCESS_KEY = "processxor"
+PROCESS_KEY = "Process_Curso"
 
-# Opcional: copiar aquí­ los IDs BPMN de las actividades y eventos
-# de negociación que se quieran analizar.
-# Vací­o = exportar todos los elementos históricos finalizados.
-ACTIVIDADES = set()
-# Ejemplo ilustrativo:
-# ACTIVIDADES = {"enviarPropuesta", "revisarPropuesta", "recordatorio"}
+# IDs BPMN de las actividades y eventos de la etapa de negociación (etapa previa a la preparación del curso).
+ACTIVIDADES = {
+    "Activity_1xw400l",  # Evaluar Viabilidad
+    "Activity_0iibzwu",  # Notificar Decisión (solicitud no viable)
+    "Propuesta",         # Registrar y Elaborar propuesta
+    "Enviar",            # Enviar propuesta
+    "Modificar",         # Modificaciones (mensaje de la empresa)
+    "Revisar",           # Revisar propuesta
+    "Plazo",             # 5 días (temporizador)
+    "Recordatorio",      # Enviar recordatorio
+    "Rechazar",          # Rechazo (mensaje de la empresa)
+    "Archivar",          # Archivar solicitud
+    "Aceptar",           # Aceptación (mensaje de la empresa)
+    "Activity_1eg7zcl",  # Habilitar acceso de la empresa
+}
 
 ARCHIVO_SALIDA = "eventos.csv"
 
@@ -62,17 +71,19 @@ def main():
     with requests.Session() as session:
         session.auth = (usuario, clave)
 
+        # Se incluyen también las instancias en curso: un curso que está en preparación o en dictado ya completó su negociación.
         instancias = consultar_todos(
             session,
             "history/historic-process-instances",
-            {
-                "processDefinitionKey": PROCESS_KEY,
-                "finished": "true",
-            },
+            {},
         )
 
         for instancia in instancias:
-            # Excluir instancias eliminadas administrativamente.
+            definicion = instancia["processDefinitionId"]
+            if not definicion.startswith(f"{PROCESS_KEY}:"):
+                continue
+
+            # Excluir instancias eliminadas o canceladas administrativamente.
             if instancia.get("deleteReason"):
                 continue
 
@@ -83,19 +94,16 @@ def main():
             )
 
             for actividad in actividades:
-                # No exportar elementos sin fecha de finalización.
-                if not actividad.get("endTime"):
+                if actividad["activityId"] not in ACTIVIDADES:
                     continue
 
-                if (
-                    ACTIVIDADES
-                    and actividad["activityId"] not in ACTIVIDADES
-                ):
+                # No exportar elementos pendientes.
+                if not actividad.get("endTime"):
                     continue
 
                 eventos.append({
                     "instancia": instancia["id"],
-                    "definicion": actividad["processDefinitionId"],
+                    "definicion": definicion,
                     "evento_id": actividad["id"],
                     "actividad_id": actividad["activityId"],
                     "actividad": (
@@ -108,8 +116,7 @@ def main():
                     "recurso": actividad.get("assignee") or "",
                 })
 
-    # Ordenar por instancia y fecha de finalización.
-    # El ID da un orden estable si coinciden las marcas temporales.
+    # Ordenar por instancia y fecha de finalización. El ID da un orden estable si coinciden las marcas temporales.
     eventos.sort(
         key=lambda evento: (
             evento["instancia"],
