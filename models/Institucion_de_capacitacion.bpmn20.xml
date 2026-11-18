@@ -110,7 +110,7 @@
         <timeDate>${fechaCurso}</timeDate>
       </timerEventDefinition>
     </intermediateCatchEvent>
-    <userTask id="Informe" name="Elaborar informe de resultados" flowable:assignee="jefeEquipoDocente" flowable:formFieldValidation="true">
+    <userTask id="Informe" name="Elaborar informe de resultados" flowable:assignee="JefeEquipoDocente" flowable:formFieldValidation="true">
       <extensionElements>
         <modeler:activiti-idm-assignee xmlns:modeler="http://flowable.org/modeler"><![CDATA[true]]></modeler:activiti-idm-assignee>
         <modeler:assignee-info-email xmlns:modeler="http://flowable.org/modeler"><![CDATA[jefeequipodocente@gmail.com]]></modeler:assignee-info-email>
@@ -119,7 +119,7 @@
         <modeler:initiator-can-complete xmlns:modeler="http://flowable.org/modeler"><![CDATA[false]]></modeler:initiator-can-complete>
       </extensionElements>
     </userTask>
-    <userTask id="Activity_1018bdz" name="Definir Docente que desarrolla el curso" flowable:assignee="jefeEquipoDocente" flowable:formFieldValidation="true">
+    <userTask id="Activity_1018bdz" name="Definir Docente que desarrolla el curso" flowable:assignee="JefeEquipoDocente" flowable:formFieldValidation="true">
       <extensionElements>
         <modeler:activiti-idm-assignee xmlns:modeler="http://flowable.org/modeler"><![CDATA[true]]></modeler:activiti-idm-assignee>
         <modeler:assignee-info-email xmlns:modeler="http://flowable.org/modeler"><![CDATA[jefeequipodocente@gmail.com]]></modeler:assignee-info-email>
