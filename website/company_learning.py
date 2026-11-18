@@ -730,9 +730,8 @@ def accion_tarea(id_tarea, nombre, accion, variables=None):
     Se usa como callback de los botones: deja el resultado en la sesion y Streamlit vuelve a dibujar el panel con las listas actualizadas.
     """
     usuario = st.session_state.usuario
-    """
-    si se completa una tarea y ademas tiene variables, se pasan en el cuerpo, por ejemplo los formularios de la propuesta(generar o revisar)
-    """
+
+    # si se completa una tarea y ademas tiene variables, se pasan en el cuerpo, por ejemplo los formularios de la propuesta(generar o revisar)
     if accion == "reclamar":
         cuerpo = {"action": "claim", "assignee": usuario["usuario"]}
     else:
