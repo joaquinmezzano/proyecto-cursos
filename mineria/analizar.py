@@ -53,12 +53,4 @@ pm4py.save_vis_dfg(
     dfg, inicios, finales, "recorridos.png"
 )
 
-# 3. Modelo BPMN descubierto a partir de las ejecuciones.
-modelo = pm4py.discover_bpmn_inductive(log)
-pm4py.save_vis_bpmn(modelo, "modelo_descubierto.png")
-pm4py.write_bpmn(modelo, "modelo_descubierto.bpmn")
-
-print("\nArchivos generados:")
-print("- recorridos.png")
-print("- modelo_descubierto.png")
-print("- modelo_descubierto.bpmn")
+print("\nArchivo generado: recorridos.png")
