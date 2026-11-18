@@ -1,4 +1,5 @@
 import csv
+import os
 import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import datetime
@@ -179,8 +180,9 @@ def actividades_ocurridas(actividades, origen_de_flujo):
 
 
 def main():
-    usuario = input("Usuario de Flowable: ")
-    clave = getpass("Contraseña: ")
+    # ejecutar_mineria.sh pasa las credenciales por variables de entorno, si no están, se piden por consola.
+    usuario = os.environ.get("FLOWABLE_USER") or input("Usuario de Flowable: ")
+    clave = os.environ.get("FLOWABLE_PASS") or getpass("Contraseña: ")
 
     eventos = []
     modelos = {}

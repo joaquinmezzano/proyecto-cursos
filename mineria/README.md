@@ -9,18 +9,16 @@ Análisis de la etapa de negociación de `Process_Curso` con PM4Py.
 - Graphviz (`sudo apt install graphviz`).
 
 ## Ejecución
-
 Desde la carpeta principal del proyecto:
-
 ```bash
-source venv/bin/activate
-cd mineria
-python exportar_history.py   # usuario: admin, contraseña: test
-python analizar.py
+./ejecutar_mineria.sh                     # Pide usuario y contraseña
+./ejecutar_mineria.sh <user>              # Pide contraseña para <user>.
+./ejecutar_mineria.sh <user> <password>   # No pide nada.
 ```
 
 1. `exportar_history.py` lee el historial de Flowable y genera `eventos.csv` con las actividades de negociación que ocurrieron.
 2. `analizar.py` muestra los tres recorridos más frecuentes y genera `recorridos.png`, el grafo de sucesión directa (cada flecha indica cuántas veces una actividad siguió a otra).
+```
 
 ## Resultados
 
