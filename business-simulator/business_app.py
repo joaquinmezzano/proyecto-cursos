@@ -69,6 +69,21 @@ def descargar_pdf(instance_id):
         pass
     return None  # Si la variable no existe pj proceso recién iniciado que no llego a generar pdf, devuelve None
 
+# Lee fechaposible1, fechaposible2 y otrasfechasopcional guardadas por Administración
+def obtener_fechas_propuestas(instance_id):
+    url = f"{FLOWABLE_URL}/runtime/process-instances/{instance_id}/variables"
+    try:
+        res = requests.get(url, auth=AUTH)
+        if res.status_code == 200:
+            vars_dict = {v["name"]: v["value"] for v in res.json()}
+            f1 = str(vars_dict.get("fechaposible1") or "").strip()
+            f2 = str(vars_dict.get("fechaposible2") or "").strip()
+            otras = str(vars_dict.get("otrasfechasopcional") or "").strip()
+            return f1, f2, otras
+    except Exception as e:
+        st.warning(f"No se pudieron leer las variables de fecha: {e}")
+    return "", "", ""
+
 # Detecta qué acciones tiene habilitadas la instancia en este momento
 def obtener_estado_acciones(instance_id):
     estado = {
@@ -208,9 +223,49 @@ if estado["esperando_respuesta"]:
     ])
 
     with tab_aceptar:
-        st.write("Aceptar la propuesta comercial en las condiciones y fechas propuestas por la administración.")
-        if st.button("Confirmar Aceptación", type="primary"):
-            enviar_mensaje(instance_id, "Aceptación")
+        f1, f2, otras = obtener_fechas_propuestas(instance_id)
+
+        def a_iso_flowable(fecha_str):
+            if len(fecha_str) == 10:
+                return f"{fecha_str}T09:00:00-03:00"
+            return fecha_str
+
+        if otras:
+            st.info(
+                f"Otras fechas {otras}\n\n"
+                "Si preferís alguna de estas opciones alternativas, usá la opcion Modificar para pedir el cambio."
+            )
+
+        fecha_base = None
+
+        # Caso 2: Vinieron 2 fechas -> la empresa elige una
+        if f1 and f2:
+            st.write("La administración propuso **2 fechas posibles**. Seleccioná la fecha con la que aceptás el curso:")
+            fecha_base = st.radio(
+                "Fechas disponibles:",
+                options=[f1, f2],
+                format_func=lambda f: f"📅 {f[8:10]}/{f[5:7]}/{f[0:4]} ({f})",
+            )
+
+        # Caso 1 y 3: Vino 1 sola fecha -> se toma esa fecha directamente
+        elif f1:
+            st.write(f"📅 **Fecha propuesta por la administración:** `{f1[8:10]}/{f1[5:7]}/{f1[0:4]}`")
+            fecha_base = f1
+
+        else:
+            st.error("No se encontró 'fechaposible1' en la instancia.")
+
+        # Selector de hora exacto para que la empresa ponga un horario tambien para probar el timer
+        if fecha_base:
+            hora = st.time_input("🕒 Hora de inicio del curso:", step=60)
+            fecha_iso = f"{fecha_base[:10]}T{hora.strftime('%H:%M:%S')}-03:00"
+
+            if st.button("Confirmar Aceptación", type="primary"):
+                enviar_mensaje(
+                    instance_id,
+                    "Aceptación",
+                    [{"name": "fechaCurso", "type": "string", "value": fecha_iso}],
+                )
 
     with tab_rechazar:
         st.write("Rechazar la propuesta y finalizar el trámite.")
