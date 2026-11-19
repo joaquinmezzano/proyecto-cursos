@@ -18,8 +18,8 @@ CREATE TABLE curso (
     presupuesto            NUMERIC(10, 2),
     fecha_inicio           DATE,
     informe_resultados     TEXT,
-    estado                 VARCHAR(50) DEFAULT 'EN_CURSO'
-    CHECK (estado IN ('EN_CURSO', 'FINALIZADO', 'CANCELADO',
+    estado                 VARCHAR(50) DEFAULT 'EN_TRAMITE'
+    CHECK (estado IN ('EN_TRAMITE','EN_CURSO', 'FINALIZADO', 'CA    NCELADO',
         'RECHAZADO', 'SIN_RESPUESTA', 'NO_VIABLE')),
     fecha_posible_1        DATE,
     fecha_posible_2        DATE,

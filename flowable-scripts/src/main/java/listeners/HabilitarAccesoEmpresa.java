@@ -63,7 +63,7 @@ public class HabilitarAccesoEmpresa implements JavaDelegate {
 
             // vincular el curso con la cuenta
             try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE curso SET acceso_habilitado = TRUE WHERE id_curso = ?")) {
+                    "UPDATE curso SET acceso_habilitado = TRUE, estado = 'EN_CURSO' WHERE id_curso = ?")) {
                 ps.setInt(1, idCurso);
                 ps.executeUpdate();
             }

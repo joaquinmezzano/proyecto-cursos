@@ -122,13 +122,16 @@ def pantalla_formulario():
                         id_empresa = cursor.fetchone()[0]
                         st.toast(f"Nueva empresa registrada (ID: {id_empresa})", icon="🆕")
 
-                    # se crea el curso, con el estado inicial: EN CURSO
+                    # se crea el curso con el estado inicial EN_TRAMITE: todavia no es un
+                    # "curso en desarrollo", recien pasa a EN_TRAMITE en "Habilitar acceso de la empresa"
                     query_insert_curso = """
                                          INSERT INTO curso (id_empresa, nombre, descripcion, cantidad_participantes, fechas_preferidas, estado)
-                                         VALUES (%s, %s, %s, %s, %s, 'EN_CURSO') RETURNING id_curso; \
+                                         VALUES (%s, %s, %s, %s, %s, 'EN_TRAMITE') RETURNING id_curso; \
                                          """
                     cursor.execute(query_insert_curso, (id_empresa, tematica, descripcion, cantidad_participantes, fechas_preferidas))
                     id_curso = cursor.fetchone()[0]
+
+                    conn.commit()
 
                     # iniciar instancia en flowable
                     url_start = f"{FLOWABLE_URL}/runtime/process-instances"
@@ -156,7 +159,9 @@ def pantalla_formulario():
 
                         st.success(f"Solicitud enviada con exito, ID: {id_instancia})")
                     else:
-                        conn.rollback() # si falla flowable, deshacemos los cambios en la BD
+                        # si falla flowable, se borra el curso que ya se habia confirmado
+                        cursor.execute("DELETE FROM curso WHERE id_curso = %s;", (id_curso,))
+                        conn.commit()
                         st.error(f"Error al iniciar el proceso en Flowable: {res.text}")
 
                 except Exception as e:
