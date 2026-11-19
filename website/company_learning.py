@@ -350,6 +350,75 @@ def pantalla_panel_personal():
 
 
 
+def obtener_solicitud(id_curso, id_instancia):
+    """
+    Devuelve los datos que cargo la empresa en el formulario de solicitud (tablas empresa y curso).
+    Se busca por variable idCurso de la instancia; si no esta, por id_instancia.
+    """
+    consulta = """
+               SELECT e.nombre_empresa, e.cuit, e.persona_contacto, e.email_contacto,
+                      c.id_curso, c.nombre, c.descripcion, c.cantidad_participantes, c.fechas_preferidas
+               FROM curso c JOIN empresa e ON e.id_empresa = c.id_empresa
+               WHERE {condicion};
+               """
+    if id_curso is not None:
+        condicion, parametro = "c.id_curso = %s", int(id_curso)
+    elif id_instancia:
+        condicion, parametro = "c.id_instancia = %s", id_instancia
+    else:
+        return None
+
+    conn = db_conexion()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(consulta.format(condicion=condicion), (parametro,))
+            fila = cur.fetchone()
+            if not fila:
+                return None
+            columnas = [col[0] for col in cur.description]
+            return dict(zip(columnas, fila))
+    finally:
+        conn.close()
+
+
+def mostrar_solicitud(tarea, variables):
+    """
+    Muestra en un desplegable los datos del formulario de solicitud de la empresa
+    """
+    with st.expander("🏢 Solicitud de la empresa", expanded=True):
+        try:
+            datos = obtener_solicitud(variables.get("idCurso"), tarea.get("processInstanceId"))
+        except Exception as e:
+            st.warning(f"No se pudieron cargar los datos de la solicitud: {e}")
+            return
+
+        if not datos:
+            st.info("No se encontro la solicitud de la empresa en la base de datos.")
+            return
+
+        def valor(campo, defecto="No informado"):
+            dato = datos.get(campo)
+            return dato if dato not in (None, "") else defecto
+
+        tematica = variables.get("tematica") or valor("nombre")
+
+        col_empresa, col_curso = st.columns(2)
+        with col_empresa:
+            st.markdown("**Datos de la empresa**")
+            st.write(f"**Razón social:** {valor('nombre_empresa')}")
+            st.write(f"**CUIT:** {valor('cuit')}")
+            st.write(f"**Persona de contacto:** {valor('persona_contacto')}")
+            st.write(f"**Email de contacto:** {valor('email_contacto')}")
+        with col_curso:
+            st.markdown("**Datos del curso solicitado**")
+            st.write(f"**Temática:** {tematica}")
+            st.write(f"**Participantes aprox.:** {valor('cantidad_participantes')}")
+            st.write(f"**Fechas preferidas:** {valor('fechas_preferidas')}")
+
+        st.markdown("**Descripción de la necesidad**")
+        st.text(valor("descripcion", "Sin descripción"))
+
+
 def form_propuesta(tarea, nombre, variables, es_revision):
     """
     Administracion:
@@ -357,6 +426,8 @@ def form_propuesta(tarea, nombre, variables, es_revision):
 
     Formulario unico para 'Propuesta' y 'Revisar'.
     """
+    mostrar_solicitud(tarea, variables)
+
     if es_revision:
         obs = variables.get("observaciones") or "Sin observaciones detalladas."
         st.warning(f"📝 **Observaciones de la empresa:** {obs}")
