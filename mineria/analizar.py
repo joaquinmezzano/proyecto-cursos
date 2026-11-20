@@ -1,0 +1,56 @@
+import pandas as pd
+import pm4py
+
+# Leer el CSV. Mantener los identificadores como texto.
+df = pd.read_csv("eventos.csv", dtype=str)
+
+# Conservar tareas (de usuario, automáticas y de script) y los eventos intermedios (mensajes y temporizador), 
+# necesarios para distinguir aceptación, modificación, rechazo y falta de respuesta.
+df = df[df["tipo"].isin([
+    "userTask", "serviceTask", "scriptTask", "intermediateCatchEvent",
+])].copy()
+
+if df.empty:
+    raise SystemExit(
+        "eventos.csv no tiene eventos para analizar. "
+        "Generar instancias y volver a ejecutar exportar_history.py."
+    )
+
+
+# Convertir fechas y conservar el orden del CSV ante empates.
+df["fecha_hora"] = pd.to_datetime(df["fecha_hora"], utc=True)
+df = df.sort_values(
+    ["instancia", "fecha_hora"], kind="stable"
+)
+
+# Adaptar las columnas al formato utilizado por PM4Py.
+log = pm4py.format_dataframe(
+    df,
+    case_id="instancia",
+    activity_key="actividad",
+    timestamp_key="fecha_hora",
+)
+
+# 1. Recorridos o variantes más frecuentes.
+variantes = pm4py.get_variants_as_tuples(log)
+total = log["case:concept:name"].nunique()
+
+print(f"\nInstancias analizadas: {total}")
+print(f"Recorridos diferentes: {len(variantes)}")
+
+print("\nLos tres recorridos más frecuentes:")
+for recorrido, cantidad in sorted(
+    variantes.items(),
+    key=lambda elemento: elemento[1],
+    reverse=True,
+)[:3]:
+    print(f"\n{cantidad} casos ({100 * cantidad / total:.1f} %)")
+    print(" → ".join(recorrido))
+
+# 2. Grafo de sucesión directa: cada flecha indica cuántas veces una tarea siguió a otra.
+dfg, inicios, finales = pm4py.discover_dfg(log)
+pm4py.save_vis_dfg(
+    dfg, inicios, finales, "recorridos.png"
+)
+
+print("\nArchivo generado: recorridos.png")

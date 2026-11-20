@@ -25,3 +25,6 @@ Thumbs.db
 flowable-postgresql/
 flowable-postgres/
 Docker_Compose/
+
+mineria/eventos.csv
+mineria/recorridos.png
