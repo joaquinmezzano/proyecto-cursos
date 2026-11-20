@@ -97,7 +97,8 @@ def pantalla_formulario():
                         st.toast(f"Nueva empresa registrada (ID: {id_empresa})", icon="🆕")
 
                     # se crea el curso con el estado inicial EN_TRAMITE: todavia no es un
-                    # "curso en desarrollo", recien pasa a EN_TRAMITE en "Habilitar acceso de la empresa"
+                    # "curso en desarrollo", recien pasa a EN_CURSO en "Habilitar acceso de la empresa"
+                    # (HabilitarAccesoEmpresa). El id_instancia se completa despues de iniciar el proceso.
                     query_insert_curso = """
                                          INSERT INTO curso (id_empresa, nombre, descripcion, cantidad_participantes, fechas_preferidas, estado)
                                          VALUES (%s, %s, %s, %s, %s, 'EN_TRAMITE') RETURNING id_curso; \

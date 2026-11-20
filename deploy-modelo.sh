@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# Publica models/Institucion_de_capacitacion.bpmn20.xml en Flowable (crea una nueva version de Process_Curso).
+# Requiere Flowable levantado en localhost:8080 y el JAR ya desplegado (./deploy-flowable.sh).
 # para dar permiso de ejecucion:
-# chmod +x ./desplegar_modelo.sh
+# chmod +x ./deploy-modelo.sh
 
 cd "$(dirname "$0")"
 

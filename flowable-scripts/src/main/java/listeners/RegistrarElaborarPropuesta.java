@@ -20,9 +20,9 @@ import aux.GeneradorPdf;
 import db.ConexionDB;
 
 /**
- * el curso ya existe en la db desde el inicio de la instancia (lo crea
- * RegistrarSolicitud con los datos del formulario de solicitud que todavia no tenemos). Aca solo se
- * actualiza esa fila con los datos de la propuesta y se genera el PDF.
+ * el curso ya existe en la db desde el inicio de la instancia: lo crea la web
+ * (website/company_learning.py) al enviar el formulario de solicitud y le guarda el id de la
+ * instancia. Aca solo se actualiza esa fila con los datos de la propuesta y se genera el PDF.
  */
 public class RegistrarElaborarPropuesta implements TaskListener {
 
@@ -81,7 +81,7 @@ public class RegistrarElaborarPropuesta implements TaskListener {
 
             int filas = ps.executeUpdate();
             if (filas == 0) {
-                // El curso deberia existir desde el inicio (RegistrarSolicitud).
+                // El curso deberia existir desde el inicio (lo crea la web al enviar la solicitud).
                 // Si no esta, algo fallo antes: mejor avisar que crear un curso incompleto.
                 throw new FlowableException("No existe un curso vinculado a la instancia " + processInstanceId);
             }
