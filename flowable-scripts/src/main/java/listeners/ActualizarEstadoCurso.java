@@ -30,13 +30,22 @@ public class ActualizarEstadoCurso implements ExecutionListener {
             return;
         }
 
-        String sql = "UPDATE curso SET estado = ? WHERE id_instancia = ?";
+        Object idCursoVar = execution.getVariable("idCurso");
+        boolean porIdCurso = idCursoVar instanceof Number;
+
+        String sql = porIdCurso
+                ? "UPDATE curso SET estado = ? WHERE id_curso = ?"
+                : "UPDATE curso SET estado = ? WHERE id_instancia = ?";
 
         try (Connection conexion = ConexionDB.abrir();
              PreparedStatement actualizar = conexion.prepareStatement(sql)) {
 
             actualizar.setString(1, resultado);
-            actualizar.setString(2, idInstancia);
+            if (porIdCurso) {
+                actualizar.setInt(2, ((Number) idCursoVar).intValue());
+            } else {
+                actualizar.setString(2, idInstancia);
+            }
 
             int filas = actualizar.executeUpdate();
             if (filas == 0) {
