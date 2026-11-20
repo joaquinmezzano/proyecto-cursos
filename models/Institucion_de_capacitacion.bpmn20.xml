@@ -339,7 +339,12 @@ if (pdfAdjunto != null) {
     </intermediateCatchEvent>
     <exclusiveGateway id="Limite" name="¿Se enviaron 2 recordatorios?"></exclusiveGateway>
     <scriptTask id="Recordatorio" name="Enviar recordatorio" scriptFormat="groovy" flowable:autoStoreVariables="false">
-      <script><![CDATA[execution.setVariable("recordatorios", execution.getVariable("recordatorios") + 1)]]></script>
+      <script><![CDATA[def n = (execution.getVariable("recordatorios") ?: 0) + 1
+def fecha = java.time.OffsetDateTime.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")).withNano(0).toString()
+execution.setVariable("recordatorios", n)
+execution.setVariable("fechaUltimoRecordatorio", fecha)
+println "[Recordatorio] " + n + "/2 enviado a " + (execution.getVariable("nombreEmpresa") ?: "la empresa") + " el " + fecha + ": la propuesta sigue sin respuesta - instancia " + execution.getProcessInstanceId()]]>
+      </script>
     </scriptTask>
     <serviceTask id="Activity_1xw400l" name="Evaluar Viabilidad" flowable:type="dmn">
       <extensionElements>

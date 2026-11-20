@@ -84,6 +84,29 @@ def obtener_fechas_propuestas(instance_id):
         st.warning(f"No se pudieron leer las variables de fecha: {e}")
     return "", "", ""
 
+# Recordatorio de la institucion: la tarea "Enviar recordatorio" deja el numero y la fecha en variables del proceso.
+def obtener_recordatorio(instance_id):
+    try:
+        res = requests.get(f"{FLOWABLE_URL}/runtime/process-instances/{instance_id}/variables",
+                           auth=AUTH, timeout=10)
+        if res.status_code != 200:
+            return None
+    except requests.RequestException:
+        return None
+
+    variables = {v["name"]: v.get("value") for v in res.json()}
+    cantidad = variables.get("recordatorios") or 0
+    if cantidad <= 0:
+        return None
+    fecha = str(variables.get("fechaUltimoRecordatorio") or "")[:16].replace("T", " ")
+    texto = f"**Recordatorio {cantidad} de 2** de la institucion" + (f" (recibido el {fecha})" if fecha else "")
+    texto += ": la propuesta sigue sin respuesta."
+    if cantidad >= 2:
+        texto += " Es el ultimo aviso: si no responde antes de que venza el plazo, la solicitud se archiva."
+    else:
+        texto += " Por favor acepte, rechace o pida modificaciones."
+    return texto
+
 # Detecta qué acciones tiene habilitadas la instancia en este momento
 def obtener_estado_acciones(instance_id):
     estado = {
@@ -218,6 +241,11 @@ st.subheader("2️⃣ Acciones disponibles en este momento")
 
 # FASE A: Esperando respuesta sobre la propuesta (Aceptar, Rechazar, Modificar)
 if estado["esperando_respuesta"]:
+    # Recordatorios que envio la institucion porque la propuesta sigue sin respuesta
+    recordatorio = obtener_recordatorio(instance_id)
+    if recordatorio:
+        st.warning(recordatorio, icon="📨")
+
     tab_aceptar, tab_rechazar, tab_modificar = st.tabs([
         "✔ Aceptar", "✖ Rechazar", "✏ Modificar"
     ])
