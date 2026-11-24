@@ -71,6 +71,7 @@ public class HistorialEjecuciones {
             modelo.addRow(new Object[] {
                 categoria[1], cantidad, porcentaje(cantidad, total)
             });
+            reconocidas += cantidad;
         }
 
         if(reconocidas < total) {
@@ -104,7 +105,7 @@ public class HistorialEjecuciones {
 
         Set<String> definiciones = new HashSet<>();
         for (HistoricProcessInstance instancia : historial.createHistoricProcessInstanceQuery()
-            .processDefinitionId("Process_Curso")
+            .processDefinitionKey("Process_Curso")
             .list()) {
                 definiciones.add(instancia.getProcessDefinitionId());
         }
@@ -208,7 +209,7 @@ public class HistorialEjecuciones {
 
         gruposPorUsuario.forEach((usuario, grupos) -> {
             long cantidad = historial.createHistoricTaskInstanceQuery()
-                .processDefinitionKey("Procces_Curso")
+                .processDefinitionKey("Process_Curso")
                 .taskAssignee(usuario)
                 .finished()
                 .taskWithoutDeleteReason()
