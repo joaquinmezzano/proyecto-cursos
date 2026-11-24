@@ -59,7 +59,7 @@ Entrá a http://localhost:8080/flowable-ui con `admin` / `test`. En **Identity m
 | Grupo | Usuarios |
 |---|---|
 | `administracion` | `administrativo`, `jefeAdministrativo` |
-| `docentes` | `docente1`, `docente2`, `jefeEquipoDocente` |
+| `docentes` | `docente1`, `docente2`, `JefeEquipoDocente` |
 
 El personal entra a la web con estos usuarios y sus contraseñas de Flowable.
 
