@@ -129,11 +129,14 @@ public class AppMateriales {
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton btnActualizar = new JButton("🔄 Actualizar");
         JButton btnSalir = new JButton("Cerrar sesión");
+        JButton btnHistorial = new JButton("Consultar historial");
         topPanel.add(new JLabel("Sesión activa: " + usuarioLogueado + "   "));
         topPanel.add(btnActualizar);
+        topPanel.add(btnHistorial);
         topPanel.add(btnSalir);
         frame.add(topPanel, BorderLayout.NORTH);
-
+        HistorialEjecuciones historial = new HistorialEjecuciones(processEngine.getHistoryService(), identityService);
+        btnHistorial.addActionListener(e -> historial.mostrarHistorial(frame));
         // panel central
         JPanel centerPanel = new JPanel(new GridLayout(2, 1, 10, 10));
         centerPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 10, 15));
