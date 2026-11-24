@@ -3,10 +3,10 @@ package delegates;
 import java.util.List;
 
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.delegate.BpmnError;
 import org.flowable.engine.delegate.DelegateExecution;
 import org.flowable.engine.delegate.JavaDelegate;
 import org.flowable.engine.impl.util.CommandContextUtil;
+import org.flowable.common.engine.api.FlowableException;
 
 /**
  * Service task "Reservar aula". Simula la conexión con un web service de reservas:
@@ -41,7 +41,8 @@ public class ReservarAula implements JavaDelegate {
         }
 
         log("instancia " + idInstancia + ": no hay aulas disponibles");
-        throw new BpmnError("SIN_AULAS", "No hay aulas disponibles para el curso");
+        throw new FlowableException("No hay aulas disponibles: las 3 aulas ya están asignadas a otros cursos. "
+                + "Elegí modalidad virtual o esperá a que se libere un aula.");
     }
 
     private void log(String mensaje) {
