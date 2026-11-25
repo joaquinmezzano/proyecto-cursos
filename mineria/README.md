@@ -18,7 +18,7 @@ Desde la carpeta principal del proyecto:
 
 1. `exportar_history.py` lee el historial de Flowable y genera `eventos.csv` con las actividades de negociación que ocurrieron.
 2. `analizar.py` muestra los tres recorridos más frecuentes y genera `recorridos.png`, el grafo de sucesión directa (cada flecha indica cuántas veces una actividad siguió a otra).
-```
+
 
 ## Resultados
 
